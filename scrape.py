@@ -46,6 +46,7 @@ import json
 import os
 from pathlib import Path
 import argparse
+import sys
 
 def save_snapshot_quietly(input_text, parsed_data, formatted_output):
     """
@@ -142,41 +143,51 @@ def convert_relative_date(relative_date):
             return ""
     return ""
 
-def format_clipboard():
+def validate_linkedin_content(text):
     """
-    Main function to parse LinkedIn job postings from clipboard
-    
-    Evolution:
-    1. Initially just looked for basic patterns
-    2. Added remote work verification after finding misleading posts
-    3. Improved title detection to avoid location confusion
-    4. Enhanced salary parsing for different formats
-    5. Added Easy Apply detection to track application quality
-    
-    Known Issue: Easy Apply jobs typically get worse response rates
-    Solution: Flag these in the Notes field to track correlation with responses
+    Validate if the clipboard content is from LinkedIn
+    Returns: bool
     """
-    text = pyperclip.paste()
+    linkedin_indicators = [
+        'logo',  # Company logo text
+        'applicants',  # Job applicants count
+        'Easy Apply',  # LinkedIn apply button
+        'Posted',  # Posted date indicator
+    ]
+    
+    return any(indicator in text for indicator in linkedin_indicators)
+
+def format_clipboard(input_text=None):
+    """
+    Format clipboard contents into CSV row
+    Args:
+        input_text (str, optional): Input text to parse. If None, reads from clipboard
+    Returns:
+        dict: Parsed data fields
+    """
+    # Get input from clipboard if not provided
+    if input_text is None:
+        input_text = pyperclip.paste()
+    
+    # Get today's date in MM/DD/YYYY format
     today = datetime.now().strftime("%m/%d/%Y")
     
-    print("=== PROCESSING CLIPBOARD CONTENT ===")
-    
-    # Initialize variables
+    # Initialize parsed data
     parsed_data = {
         "company": "",
         "title": "",
         "location": "",
-        "url": "",  # We'll populate this with the job ID URL
-        "date": today,
-        "date_applied": today,
+        "url": "",
+        "date": today,  # Use MM/DD/YYYY format
+        "date_applied": today,  # Also set application date to today
+        "notes": "",  # Will be set to "Easy Apply" if found
         "salary": "",
-        "notes": "",
-        "posted": "",  # New field
-        "applicants": ""  # New field
+        "posted": "",  # Will capture "3 weeks ago" etc.
+        "applicants": ""
     }
     
     # Try to find job ID in the URL
-    url_match = re.search(r'jobs/view/(\d+)', text)
+    url_match = re.search(r'jobs/view/(\d+)', input_text)
     if url_match:
         job_id = url_match.group(1)
         parsed_data["url"] = f"https://www.linkedin.com/jobs/view/{job_id}/"
@@ -186,7 +197,7 @@ def format_clipboard():
     found = set()
     
     # Find the main job section
-    job_sections = text.split("About the job")
+    job_sections = input_text.split("About the job")
     if len(job_sections) > 1:
         main_job = job_sections[0]
         lines = main_job.split('\n')
@@ -257,6 +268,26 @@ def format_clipboard():
                     print(f"Found applicants: {parsed_data['applicants']}")
                     found.add("applicants")
 
+            # Check for Easy Apply
+            if 'Easy Apply' in line:
+                parsed_data['notes'] = "Easy Apply"
+            
+            # Check for Posted/Reposted date
+            if ' ago' in line:
+                time_ago_match = re.search(r'(?:Posted|Reposted)\s+(.*?)\s+ago', line)
+                if time_ago_match:
+                    parsed_data['posted'] = f"{time_ago_match.group(1)} ago"
+
+    # Salary parsing - look for both formats
+    for line in input_text.split('\n'):
+        if 'K/yr' in line:
+            salary_match = re.search(r'\$(\d+)K/yr\s*-\s*\$(\d+)K/yr', line)
+            if salary_match:
+                min_salary = int(salary_match.group(1)) * 1000
+                max_salary = int(salary_match.group(2)) * 1000
+                parsed_data['salary'] = f"{min_salary}-{max_salary}"
+                break
+
     # Create CSV row with location
     fields = [
         parsed_data["company"],
@@ -311,12 +342,14 @@ def format_clipboard():
     print(f"Date: '{parsed_data['date']}'")
     print(f"Notes: '{parsed_data['notes']}'")  # Added notes to verification
     
-    save_snapshot_quietly(text, parsed_data, formatted)
+    save_snapshot_quietly(input_text, parsed_data, formatted)
     
     pyperclip.copy(formatted)
     print("\nFormatted data copied to clipboard!")
     print("\nClipboard content:")
     print(formatted)
+    
+    return parsed_data
 
 def setup_args():
     parser = argparse.ArgumentParser(description='LinkedIn Job Application Parser')
@@ -324,6 +357,8 @@ def setup_args():
                        help='Analyze historical snapshots to identify missing data')
     parser.add_argument('--allmatches', '-am', action='store_true',
                        help='Show all matched data in CSV format')
+    parser.add_argument('--unit-test', '-ut', action='store_true',
+                       help='Run unit tests against synthetic test data')
     return parser.parse_args()
 
 def analyze_snapshots(show_all_matches=False):
@@ -333,15 +368,15 @@ def analyze_snapshots(show_all_matches=False):
         print("No snapshots directory found!")
         return
     
-    missing_data = {
-        'company': [],
-        'title': [],
-        'location': [],
-        'posted': [],
-        'applicants': []
+    # Track failures by type and snapshot
+    failures = {
+        'company': {},
+        'title': {},
+        'location': {},
+        'posted': {},
+        'applicants': {}
     }
     
-    all_data = []
     total_snapshots = 0
     
     for snapshot_file in snapshot_dir.glob('linkedin_snapshot_*.json'):
@@ -349,37 +384,30 @@ def analyze_snapshots(show_all_matches=False):
             with open(snapshot_file, 'r') as f:
                 total_snapshots += 1
                 data = json.load(f)
-                job_data = {
-                    'company': data['parsed_data'].get('company', ''),
-                    'title': data['parsed_data'].get('title', ''),
-                    'location': data['parsed_data'].get('location', ''),
-                    'posted': data['parsed_data'].get('posted', ''),
-                    'applicants': data['parsed_data'].get('applicants', ''),
-                    'timestamp': data['timestamp']
-                }
                 
-                # Check for missing data
-                for field, value in job_data.items():
-                    if field != 'timestamp' and not value:
-                        missing_data[field].append(snapshot_file.name)
-                
-                all_data.append(job_data)
+                # Store full snapshot data for each failure
+                for field in failures.keys():
+                    if not data['parsed_data'].get(field):
+                        failures[field][snapshot_file.name] = {
+                            'timestamp': data['timestamp'],
+                            'raw_input': data['input'][:200] + '...' if len(data['input']) > 200 else data['input']
+                        }
                 
         except Exception as e:
             print(f"Error processing {snapshot_file}: {e}")
     
-    # Print summary of missing data
-    print(f"\nAnalyzed {total_snapshots} snapshots:")
-    print("\nMissing Data Summary:")
-    has_missing = False
-    for field, files in missing_data.items():
-        if files:
-            has_missing = True
-            print(f"\n{field.title()} missing in {len(files)} snapshots:")
-            for file in files:
-                print(f"  - {file}")
+    # Print organized summary
+    print(f"\nAnalyzed {total_snapshots} snapshots:\n")
     
-    if not has_missing:
+    for field, failed_snapshots in failures.items():
+        if failed_snapshots:
+            failure_count = len(failed_snapshots)
+            success_rate = ((total_snapshots - failure_count) / total_snapshots) * 100
+            print(f"{field.title()} missing in {failure_count} snapshots:")
+            for snapshot_name, snapshot_data in failed_snapshots.items():
+                print(f"  - {snapshot_name}: {snapshot_data['raw_input']}")
+    
+    if not failures:
         print("All fields successfully parsed in all snapshots!")
     
     # If --allmatches flag is used, output CSV format
@@ -390,10 +418,99 @@ def analyze_snapshots(show_all_matches=False):
         for job in all_data:
             print(f"{job['timestamp']},{job['company']},{job['title']},{job['location']},{job['posted']},{job['applicants']}")
 
+def generate_test_cases():
+    """Generate synthetic test cases from snapshot data"""
+    test_cases = []
+    snapshot_dir = Path(__file__).parent / 'snapshots' / 'v2'
+    
+    for snapshot_file in snapshot_dir.glob('linkedin_snapshot_*.json'):
+        with open(snapshot_file, 'r') as f:
+            data = json.load(f)
+            input_text = data['input']
+            
+            # Extract key patterns for testing
+            test_case = {
+                'input': input_text,
+                'expected': {
+                    'company': data['parsed_data'].get('company', ''),
+                    'title': data['parsed_data'].get('title', ''),
+                    'location': data['parsed_data'].get('location', ''),
+                    'posted': data['parsed_data'].get('posted', ''),
+                    'applicants': data['parsed_data'].get('applicants', ''),
+                    'salary': data['parsed_data'].get('salary', '')
+                }
+            }
+            test_cases.append(test_case)
+    
+    # Reduce test cases to unique patterns
+    unique_cases = {}
+    for case in test_cases:
+        # Create a hash of the important patterns in the input
+        key_patterns = [
+            re.search(r'company logo.*?(?=\n)', case['input'] or ''),
+            re.search(r'\d+ applicants', case['input'] or ''),
+            re.search(r'\d+ weeks? ago', case['input'] or ''),
+            re.search(r'\$\d+K/yr', case['input'] or '')
+        ]
+        
+        # Create a unique key for the test case
+        key = ''.join([str(pattern.start()) if pattern else '' for pattern in key_patterns])
+        
+        # Add the test case to the unique cases dictionary
+        unique_cases[key] = case
+    
+    return list(unique_cases.values())
+
+def run_tests(test_cases_file='tests/test_data.json'):
+    """Run tests against known good data patterns"""
+    with open(test_cases_file, 'r') as f:
+        test_data = json.load(f)
+    
+    passed = 0
+    failed = 0
+    results = []
+    
+    print("\nRunning parser tests...")
+    
+    for test in test_data['test_cases']:
+        print(f"\nTest: {test['description']}")
+        
+        # Parse the test input
+        result = format_clipboard(test['input'])
+        
+        # Compare each field
+        field_results = []
+        for field, expected in test['expected'].items():
+            actual = result.get(field, '')
+            matches = actual == expected
+            
+            if matches:
+                field_results.append(f"✓ {field}")
+            else:
+                field_results.append(f"✗ {field}: expected '{expected}', got '{actual}'")
+                
+        # Track overall test result
+        if all(r.startswith('✓') for r in field_results):
+            passed += 1
+            print("PASSED")
+        else:
+            failed += 1
+            print("FAILED")
+            
+        print('\n'.join(field_results))
+        
+    # Print summary
+    print(f"\nTest Summary:")
+    print(f"Passed: {passed}")
+    print(f"Failed: {failed}")
+    print(f"Success Rate: {(passed/(passed+failed))*100:.1f}%")
+
 if __name__ == "__main__":
     args = setup_args()
     
-    if args.analyze_history:
+    if args.unit_test:
+        run_tests()
+    elif args.analyze_history:
         analyze_snapshots(show_all_matches=args.allmatches)
     else:
         format_clipboard()
