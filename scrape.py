@@ -41,10 +41,11 @@ Known Challenges Addressed:
 
 import pyperclip
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import os
 from pathlib import Path
+import argparse
 
 def save_snapshot_quietly(input_text, parsed_data, formatted_output):
     """
@@ -105,7 +106,56 @@ def save_snapshot_quietly(input_text, parsed_data, formatted_output):
         # Silently handle any errors during snapshot saving
         pass
 
+def convert_relative_date(relative_date):
+    """Convert relative date (e.g., '3 weeks ago') to actual date"""
+    today = datetime.now()
+    
+    # Extract number and unit from relative date
+    parts = relative_date.lower().split()
+    if len(parts) >= 2:
+        try:
+            number = int(parts[0])
+            unit = parts[1]
+            
+            if 'second' in unit:
+                delta = timedelta(seconds=number)
+            elif 'minute' in unit:
+                delta = timedelta(minutes=number)
+            elif 'hour' in unit:
+                delta = timedelta(hours=number)
+            elif 'day' in unit:
+                delta = timedelta(days=number)
+            elif 'week' in unit:
+                delta = timedelta(weeks=number)
+            elif 'month' in unit:
+                # Approximate months as 30 days
+                delta = timedelta(days=number * 30)
+            elif 'year' in unit:
+                # Approximate years as 365 days
+                delta = timedelta(days=number * 365)
+            else:
+                return ""
+                
+            actual_date = today - delta
+            return actual_date.strftime("%m/%d/%Y")
+        except ValueError:
+            return ""
+    return ""
+
 def format_clipboard():
+    """
+    Main function to parse LinkedIn job postings from clipboard
+    
+    Evolution:
+    1. Initially just looked for basic patterns
+    2. Added remote work verification after finding misleading posts
+    3. Improved title detection to avoid location confusion
+    4. Enhanced salary parsing for different formats
+    5. Added Easy Apply detection to track application quality
+    
+    Known Issue: Easy Apply jobs typically get worse response rates
+    Solution: Flag these in the Notes field to track correlation with responses
+    """
     text = pyperclip.paste()
     today = datetime.now().strftime("%m/%d/%Y")
     
@@ -116,10 +166,21 @@ def format_clipboard():
         "company": "",
         "title": "",
         "location": "",
-        "url": "",
+        "url": "",  # We'll populate this with the job ID URL
         "date": today,
-        "salary": ""
+        "date_applied": today,
+        "salary": "",
+        "notes": "",
+        "posted": "",  # New field
+        "applicants": ""  # New field
     }
+    
+    # Try to find job ID in the URL
+    url_match = re.search(r'jobs/view/(\d+)', text)
+    if url_match:
+        job_id = url_match.group(1)
+        parsed_data["url"] = f"https://www.linkedin.com/jobs/view/{job_id}/"
+        print(f"Found job URL: {parsed_data['url']}")
     
     # Track what we've found to prevent duplicates
     found = set()
@@ -128,85 +189,73 @@ def format_clipboard():
     job_sections = text.split("About the job")
     if len(job_sections) > 1:
         main_job = job_sections[0]
-        
         lines = main_job.split('\n')
+        
+        # New approach: Look for title after company logo and before applicant count
         for i, line in enumerate(lines):
             line = line.strip()
             
-            # Company detection
+            # Company detection (keep existing)
             if "company" not in found and "logo" in line.lower():
                 company = line.replace("logo", "").strip()
                 if company:
                     parsed_data["company"] = company
                     print(f"Found company: {parsed_data['company']}")
                     found.add("company")
-            
-            # Title detection - look for standalone title line
-            if "title" not in found and line and not any(x in line.lower() for x in ['logo', 'save', 'about', '·', ',']):
-                # Check if next line contains location pattern
-                if i + 1 < len(lines) and "· " in lines[i + 1]:
-                    title = line.strip()
-                    if title and len(title.split()) <= 6:  # Most titles are 2-6 words
-                        parsed_data["title"] = title
-                        print(f"Found title: {parsed_data['title']}")
-                        found.add("title")
-            
-            # Location detection with remote verification
-            if "location" not in found and ", " in line and "· " in line:
-                # Get base location (City, State)
-                location_parts = line.split("· ")[0].strip()
-                
-                # First check if it claims to be remote
-                is_remote = False
-                for check_line in lines[i:i+3]:
-                    if "Remote" in check_line:
-                        is_remote = True
-                        break
-                
-                # Now verify against the job description for contradictions
-                job_description = job_sections[1] if len(job_sections) > 1 else ""
-                has_contradiction = any(phrase in job_description.lower() for phrase in [
-                    "hybrid",
-                    "on-site",
-                    "onsite",
-                    "in office",
-                    "in-office",
-                    "must be located",
-                    "must reside",
-                    "must live",
-                    "required to work from"
-                ])
-                
-                # Only mark as remote if there are no contradictions
-                if is_remote and not has_contradiction:
-                    location_parts += " (Remote)"
-                elif is_remote and has_contradiction:
-                    location_parts += " (Claims Remote - Check Description)"
                     
-                parsed_data["location"] = location_parts
-                print(f"Found location: {parsed_data['location']}")
-                found.add("location")
-            
-            # Salary detection
-            if "salary" not in found:
-                # Try K/yr format
-                if "$" in line and "/yr" in line and "-" in line:
-                    salary_match = re.search(r'\$?(\d+)K?/yr\s*-\s*\$?(\d+)K?/yr', line)
-                    if salary_match:
-                        start_salary = int(salary_match.group(1)) * 1000
-                        end_salary = int(salary_match.group(2)) * 1000
-                        parsed_data["salary"] = f"{start_salary}-{end_salary}"
-                        print(f"Found salary: {parsed_data['salary']}")
-                        found.add("salary")
-                # Try annual format in description
-                elif "annually" in line.lower() and "$" in line:
-                    salary_match = re.search(r'\$?([\d,]+)-\$?([\d,]+)', line)
-                    if salary_match:
-                        start_salary = salary_match.group(1).replace(',', '')
-                        end_salary = salary_match.group(2).replace(',', '')
-                        parsed_data["salary"] = f"{start_salary}-{end_salary}"
-                        print(f"Found salary: {parsed_data['salary']}")
-                        found.add("salary")
+                    # NEW: Look for title in the next few lines after company
+                    for j in range(i+1, min(i+5, len(lines))):
+                        potential_title = lines[j].strip()
+                        next_line = lines[j+1].strip() if j+1 < len(lines) else ""
+                        
+                        # Check if this line is followed by location/applicant info
+                        if (potential_title and 
+                            ("applicants" in next_line or "United States" in next_line) and
+                            not any(x in potential_title.lower() for x in 
+                                ['logo', 'save', 'about', '·', 'home', 'my network', 'jobs'])):
+                            parsed_data["title"] = potential_title
+                            print(f"Found title: {parsed_data['title']}")
+                            found.add("title")
+                            break
+
+            # Location detection (modify to handle new format)
+            if "location" not in found:
+                # Look for "United States" or other location patterns
+                if "United States" in line or ("· " in line and ", " in line):
+                    location_parts = line.split("·")[0].strip() if "·" in line else line
+                    
+                    # Check for remote status in surrounding lines
+                    is_remote = any("Remote" in lines[k] for k in range(max(0, i-2), min(len(lines), i+3)))
+                    
+                    if is_remote:
+                        location_parts += " (Remote)"
+                    
+                    parsed_data["location"] = location_parts
+                    print(f"Found location: {parsed_data['location']}")
+                    found.add("location")
+
+            # Look for posting date (format: "· X days/weeks/months ago")
+            if "posted" not in found and " ago · " in line.lower():
+                posted_parts = line.split(" · ")
+                for part in posted_parts:
+                    if "ago" in part:
+                        relative_date = part.strip()
+                        actual_date = convert_relative_date(relative_date)
+                        parsed_data["posted"] = actual_date
+                        print(f"Found posted date: {relative_date} -> {actual_date}")
+                        found.add("posted")
+
+            # Look for applicant count
+            if "applicants" not in found and "applicants" in line.lower():
+                applicant_match = re.search(r'(\d+)\+?\s+applicants|Over\s+(\d+)\s+applicants', line)
+                if applicant_match:
+                    count = applicant_match.group(1) or applicant_match.group(2)
+                    if "Over" in line or "+" in line:
+                        parsed_data["applicants"] = f"{count}+"
+                    else:
+                        parsed_data["applicants"] = count
+                    print(f"Found applicants: {parsed_data['applicants']}")
+                    found.add("applicants")
 
     # Create CSV row with location
     fields = [
@@ -216,18 +265,41 @@ def format_clipboard():
         parsed_data["url"],
         parsed_data["date"],
         "LinkedIn",
-        "",  # DateApplied
+        parsed_data["date_applied"],
         "",  # InitialResponse
         "",  # Reject
         "",  # Screen
         "",  # FirstRound
         "",  # SecondRound
-        "",  # Notes
-        parsed_data["salary"]  # Salary at the end
+        parsed_data["notes"],
+        parsed_data["salary"],
+        parsed_data["posted"],  # New field
+        parsed_data["applicants"]  # New field
     ]
     
     # Join with commas and quote each field
     formatted = ",".join(f'"{str(field)}"' for field in fields)
+    
+    print("\n=== COLUMN HEADERS ===")
+    headers = [
+        "Company",
+        "Title",
+        "Location",
+        "URL",
+        "Date",
+        "Source",
+        "DateApplied",
+        "InitialResponse",
+        "Reject",
+        "Screen",
+        "FirstRound",
+        "SecondRound",
+        "Notes",
+        "Salary",
+        "Posted",  # New field
+        "Applicants"  # New field
+    ]
+    print(",".join(headers))
     
     print("\n=== FINAL OUTPUT ===")
     print(formatted)
@@ -237,6 +309,7 @@ def format_clipboard():
     print(f"Location: '{parsed_data['location']}'")
     print(f"Salary: '{parsed_data['salary']}'")
     print(f"Date: '{parsed_data['date']}'")
+    print(f"Notes: '{parsed_data['notes']}'")  # Added notes to verification
     
     save_snapshot_quietly(text, parsed_data, formatted)
     
@@ -245,5 +318,82 @@ def format_clipboard():
     print("\nClipboard content:")
     print(formatted)
 
+def setup_args():
+    parser = argparse.ArgumentParser(description='LinkedIn Job Application Parser')
+    parser.add_argument('--analyze-history', '-ah', action='store_true',
+                       help='Analyze historical snapshots to identify missing data')
+    parser.add_argument('--allmatches', '-am', action='store_true',
+                       help='Show all matched data in CSV format')
+    return parser.parse_args()
+
+def analyze_snapshots(show_all_matches=False):
+    """Analyze snapshots to find missing data patterns"""
+    snapshot_dir = Path(__file__).parent / 'snapshots' / 'v2'
+    if not snapshot_dir.exists():
+        print("No snapshots directory found!")
+        return
+    
+    missing_data = {
+        'company': [],
+        'title': [],
+        'location': [],
+        'posted': [],
+        'applicants': []
+    }
+    
+    all_data = []
+    total_snapshots = 0
+    
+    for snapshot_file in snapshot_dir.glob('linkedin_snapshot_*.json'):
+        try:
+            with open(snapshot_file, 'r') as f:
+                total_snapshots += 1
+                data = json.load(f)
+                job_data = {
+                    'company': data['parsed_data'].get('company', ''),
+                    'title': data['parsed_data'].get('title', ''),
+                    'location': data['parsed_data'].get('location', ''),
+                    'posted': data['parsed_data'].get('posted', ''),
+                    'applicants': data['parsed_data'].get('applicants', ''),
+                    'timestamp': data['timestamp']
+                }
+                
+                # Check for missing data
+                for field, value in job_data.items():
+                    if field != 'timestamp' and not value:
+                        missing_data[field].append(snapshot_file.name)
+                
+                all_data.append(job_data)
+                
+        except Exception as e:
+            print(f"Error processing {snapshot_file}: {e}")
+    
+    # Print summary of missing data
+    print(f"\nAnalyzed {total_snapshots} snapshots:")
+    print("\nMissing Data Summary:")
+    has_missing = False
+    for field, files in missing_data.items():
+        if files:
+            has_missing = True
+            print(f"\n{field.title()} missing in {len(files)} snapshots:")
+            for file in files:
+                print(f"  - {file}")
+    
+    if not has_missing:
+        print("All fields successfully parsed in all snapshots!")
+    
+    # If --allmatches flag is used, output CSV format
+    if show_all_matches:
+        print("\nAll Matched Data (CSV format):")
+        # Print headers
+        print("Timestamp,Company,Title,Location,Posted,Applicants")
+        for job in all_data:
+            print(f"{job['timestamp']},{job['company']},{job['title']},{job['location']},{job['posted']},{job['applicants']}")
+
 if __name__ == "__main__":
-    format_clipboard()
+    args = setup_args()
+    
+    if args.analyze_history:
+        analyze_snapshots(show_all_matches=args.allmatches)
+    else:
+        format_clipboard()
