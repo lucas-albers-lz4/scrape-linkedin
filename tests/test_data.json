@@ -1,0 +1,48 @@
+{
+    "test_cases": [
+        {
+            "description": "Standard LinkedIn job posting",
+            "input": "0 notifications total\nSkip to search\nSkip to main content\nKeyboard shortcuts\nClose jump menu\nSearch\nnew feed updates notifications\nHome\nMy Network\nJobs\nMessaging\nNotifications\nLucas Albers\nMe\nFor business\nTry Premium for $0\nSearch by title, skill, or company\nengineering manager\nCity, state, or zip code\nWorldwide\nSearch\nnew feed updates notifications\nJobs\nEngineering Manager jobs in Worldwide\nUpload your resume\nLet employers find you\nMeta logo\nEngineering Manager\nMeta · New York, NY (Remote)\nPosted 3 days ago · 150+ applicants\n$190,000/yr - $220,000/yr\nEasy Apply\nSave\nMore\nShow more options\nApply now\nSave this job\nMore\nShow more options\nJob details\nSalary\n$190,000 - $220,000 a year\nJob Type\nFull-time\nNumber of hires for this role\n1\nBenefits\nPulled from the full job description\nHealth insurance\nPaid time off\nLife insurance\nFlexible schedule\n401(k)\nParental leave\nEmployee discount\nHealth savings account\nWellness program\nReferral program\nFull Job Description\nMeta is seeking an Engineering Manager to join our team...",
+            "expected": {
+                "company": "Meta",
+                "title": "Engineering Manager",
+                "location": "New York, NY (Remote)",
+                "posted": "3 days ago",
+                "applicants": "150+",
+                "salary": "190000-220000",
+                "url": "",
+                "date": "",
+                "date_applied": "",
+                "notes": ""
+            }
+        },
+        {
+            "description": "LinkedIn job posting with salary range",
+            "input": "0 notifications total\nSkip to search\nSkip to main content\nKeyboard shortcuts\nClose jump menu\nSearch\nnew feed updates notifications\nHome\nMy Network\nJobs\nMessaging\nNotifications\nLucas Albers\nMe\nFor business\nTry Premium for $0\nSearch by title, skill, or company\nengineering manager\nCity, state, or zip code\nWorldwide\nSearch\nnew feed updates notifications\nJobs\nEngineering Manager jobs in Worldwide\nUpload your resume\nLet employers find you\nGoogle logo\nSenior Engineering Manager\nGoogle · Mountain View, CA\nPosted 2 weeks ago · Over 200 applicants\n$200K/yr - $300K/yr\nEasy Apply\nSave\nMore\nShow more options\nApply now\nSave this job\nMore\nShow more options\nJob details\nSalary\n$200,000 - $300,000 a year\nJob Type\nFull-time",
+            "expected": {
+                "company": "Google",
+                "title": "Senior Engineering Manager",
+                "location": "Mountain View, CA",
+                "posted": "2 weeks ago",
+                "applicants": "200+",
+                "salary": "200000-300000",
+                "url": "",
+                "date": "",
+                "date_applied": "",
+                "notes": ""
+            }
+        }
+    ],
+    "field_patterns": {
+        "company": "Company name followed by 'logo'",
+        "title": "Job title after company logo",
+        "location": "Location after company and title",
+        "posted": "Posted time with 'ago'",
+        "applicants": "Number followed by 'applicants'",
+        "salary": "Salary range in K/yr format",
+        "url": "LinkedIn job URL (optional)",
+        "date": "Current date (optional)",
+        "date_applied": "Application date (optional)",
+        "notes": "Additional notes (optional)"
+    }
+} 

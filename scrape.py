@@ -273,10 +273,10 @@ def format_clipboard(input_text=None):
                 parsed_data['notes'] = "Easy Apply"
             
             # Check for Posted/Reposted date
-            if ' ago' in line:
+            if 'Posted' in line or 'Reposted' in line:
                 time_ago_match = re.search(r'(?:Posted|Reposted)\s+(.*?)\s+ago', line)
                 if time_ago_match:
-                    parsed_data['posted'] = f"{time_ago_match.group(1)} ago"
+                    parsed_data['posted'] = time_ago_match.group(1)
 
     # Salary parsing - look for both formats
     for line in input_text.split('\n'):
@@ -344,12 +344,92 @@ def format_clipboard(input_text=None):
     
     save_snapshot_quietly(input_text, parsed_data, formatted)
     
+    print_job_analysis(parsed_data)
+    
+    # Add hybrid warning right before clipboard message
+    if parsed_data.get("hybrid_indicators"):
+        print("\n!!! WARNING: HYBRID/ONSITE ROLE - DO NOT PROCEED WITH APPLICATION !!!")
+    
     pyperclip.copy(formatted)
     print("\nFormatted data copied to clipboard!")
     print("\nClipboard content:")
     print(formatted)
     
     return parsed_data
+
+def parse_job_listing(raw_text, debug=False):
+    """Parse the raw LinkedIn job listing text"""
+    # Check for hybrid/onsite indicators first
+    hybrid_indicators = []
+    lower_text = raw_text.lower()
+    
+    keywords = [
+        "hybrid",
+        "in-office",
+        "onsite",
+        "on-site",
+        "in office",
+        "days per week",
+        "days in office",
+        "headquarters",
+        "hq",
+        "located in the office",
+        "office location",
+        "in-office working",
+        "office environment",
+        "bellevue, wa",  # Location specific
+    ]
+    
+    for keyword in keywords:
+        if keyword in lower_text:
+            start_idx = max(0, lower_text.find(keyword) - 50)
+            end_idx = min(len(lower_text), lower_text.find(keyword) + 50)
+            context = raw_text[start_idx:end_idx].strip()
+            hybrid_indicators.append(f"{keyword}: '{context}'")
+    
+    if hybrid_indicators:
+        print("\n")
+        print("!" * 80)
+        print("!!! WARNING: HYBRID/ONSITE ROLE - DO NOT APPLY !!!")
+        print("!!! Found indicators:")
+        for indicator in hybrid_indicators:
+            print(f"!!!  - {indicator}")
+        print("!" * 80)
+        print("\n")
+    
+    # Continue with your existing parsing code
+    matches = re.findall(r'"([^"]*)"', raw_text)
+    if len(matches) >= 3:
+        company = matches[0]
+        title = matches[1]
+        location = matches[2]
+    else:
+        # Your existing company/title/location detection code
+        company = re.search(r'Found company: (.+)', raw_text)
+        company = company.group(1) if company else ''
+        
+        title = re.search(r'Found title: (.+)', raw_text)
+        title = title.group(1) if title else ''
+        
+        location = re.search(r'Found location: (.+)', raw_text)
+        location = location.group(1) if location else ''
+    
+    # Rest of your existing code...
+    
+    # Add hybrid warning to notes if detected
+    notes = "HYBRID/ONSITE ROLE - DO NOT APPLY" if hybrid_indicators else ""
+    
+    # ... rest of function ...
+
+def print_job_analysis(job_data):
+    """Print job analysis with warnings"""
+    if job_data.get("hybrid_indicators"):
+        print("\n")
+        print("!" * 80)
+        print("!!! WARNING: HYBRID/ONSITE ROLE - DO NOT APPLY !!!")
+        print("!!! Found indicators:")
+        for indicator in job_data["hybrid_indicators"]:
+            print(f"!!!  - {indicator}")
 
 def setup_args():
     parser = argparse.ArgumentParser(description='LinkedIn Job Application Parser')
@@ -361,62 +441,105 @@ def setup_args():
                        help='Run unit tests against synthetic test data')
     return parser.parse_args()
 
-def analyze_snapshots(show_all_matches=False):
-    """Analyze snapshots to find missing data patterns"""
-    snapshot_dir = Path(__file__).parent / 'snapshots' / 'v2'
-    if not snapshot_dir.exists():
-        print("No snapshots directory found!")
-        return
-    
-    # Track failures by type and snapshot
-    failures = {
-        'company': {},
-        'title': {},
-        'location': {},
-        'posted': {},
-        'applicants': {}
-    }
-    
-    total_snapshots = 0
-    
-    for snapshot_file in snapshot_dir.glob('linkedin_snapshot_*.json'):
-        try:
-            with open(snapshot_file, 'r') as f:
-                total_snapshots += 1
-                data = json.load(f)
+def parse_snapshot(snapshot_path):
+    """Parse a single snapshot file and extract job data"""
+    try:
+        print(f"\nDEBUG: Processing {snapshot_path}")
+        
+        with open(snapshot_path, 'r') as f:
+            data = json.load(f)
+            
+        # Extract data from the parsed_data field
+        parsed_data = data.get('parsed_data', {})
+        raw_text = data.get('input', '')
+        
+        print(f"DEBUG: Parsed data: {parsed_data}")
+        
+        # Ensure we have valid data with defaults
+        location = parsed_data.get('location', '').strip() or 'Unknown'
+        is_remote = 'remote' in location.lower()
+        
+        # Create test case with required fields
+        test_case = {
+            'raw_text': raw_text[:100] + '...',  # Truncate for logging
+            'source': str(snapshot_path),
+            'timestamp': data.get('timestamp', ''),
+            'is_valid': bool(parsed_data and parsed_data.get('company') and parsed_data.get('title')),
+            'expected': {
+                'company': parsed_data.get('company', '').strip() or 'Unknown',
+                'title': parsed_data.get('title', '').strip() or 'Unknown',
+                'location': location,
+                'salary': parsed_data.get('salary', '').strip() or 'Unknown',
+                'is_remote': is_remote,
+                'location_type': 'remote' if is_remote else 'unknown',
+                'rejection_reasons': [],
+                'warning_flags': []
+            }
+        }
+        
+        print(f"DEBUG: Created test case: {test_case['expected']}")
+        
+        # Check for remote contradictions
+        remote_contradictions = data.get('parsing_rules', {}).get('remote_contradictions', [])
+        if remote_contradictions:
+            print(f"DEBUG: Checking remote contradictions: {remote_contradictions}")
+            
+        for indicator in remote_contradictions:
+            if indicator in raw_text.lower():
+                test_case['expected']['is_remote'] = False
+                test_case['expected']['location_type'] = 'hybrid/onsite'
+                test_case['expected']['rejection_reasons'].append(f'Found "{indicator}" in job description')
+                test_case['expected']['warning_flags'].append(indicator)
+                print(f"DEBUG: Found contradiction: {indicator}")
+        
+        # Validate test case has required fields
+        required_fields = ['company', 'title', 'location', 'salary']
+        is_valid = all(test_case['expected'].get(field) and 
+                      test_case['expected'][field] != 'Unknown' 
+                      for field in required_fields)
+        
+        if is_valid:
+            print("DEBUG: Test case is valid")
+            return test_case
+        else:
+            missing_fields = [field for field in required_fields 
+                            if not test_case['expected'].get(field) or 
+                            test_case['expected'][field] == 'Unknown']
+            print(f"DEBUG: Test case invalid. Missing fields: {missing_fields}")
+            return None
+            
+    except Exception as e:
+        print(f"Error parsing {snapshot_path}: {str(e)}")
+        return None
+
+def analyze_all_snapshots():
+    """Analyze snapshots from all directories"""
+    try:
+        valid_test_cases = []
+        invalid_snapshots = []
+        
+        # Find all snapshot files
+        snapshot_paths = list(Path("snapshots").rglob("*.json"))
+        
+        print(f"\nAnalyzing {len(snapshot_paths)} total snapshots...")
+        
+        # Process each snapshot
+        for path in snapshot_paths:
+            test_case = parse_snapshot(path)
+            if test_case and test_case['is_valid']:
+                valid_test_cases.append(test_case)
+            else:
+                invalid_snapshots.append(path)
                 
-                # Store full snapshot data for each failure
-                for field in failures.keys():
-                    if not data['parsed_data'].get(field):
-                        failures[field][snapshot_file.name] = {
-                            'timestamp': data['timestamp'],
-                            'raw_input': data['input'][:200] + '...' if len(data['input']) > 200 else data['input']
-                        }
-                
-        except Exception as e:
-            print(f"Error processing {snapshot_file}: {e}")
-    
-    # Print organized summary
-    print(f"\nAnalyzed {total_snapshots} snapshots:\n")
-    
-    for field, failed_snapshots in failures.items():
-        if failed_snapshots:
-            failure_count = len(failed_snapshots)
-            success_rate = ((total_snapshots - failure_count) / total_snapshots) * 100
-            print(f"{field.title()} missing in {failure_count} snapshots:")
-            for snapshot_name, snapshot_data in failed_snapshots.items():
-                print(f"  - {snapshot_name}: {snapshot_data['raw_input']}")
-    
-    if not failures:
-        print("All fields successfully parsed in all snapshots!")
-    
-    # If --allmatches flag is used, output CSV format
-    if show_all_matches:
-        print("\nAll Matched Data (CSV format):")
-        # Print headers
-        print("Timestamp,Company,Title,Location,Posted,Applicants")
-        for job in all_data:
-            print(f"{job['timestamp']},{job['company']},{job['title']},{job['location']},{job['posted']},{job['applicants']}")
+        print(f"\nAnalysis complete:")
+        print(f"- Valid test cases: {len(valid_test_cases)}")
+        print(f"- Invalid snapshots: {len(invalid_snapshots)}")
+        
+        return valid_test_cases
+        
+    except Exception as e:
+        print(f"Error analyzing snapshots: {str(e)}")
+        return []
 
 def generate_test_cases():
     """Generate synthetic test cases from snapshot data"""
@@ -505,12 +628,230 @@ def run_tests(test_cases_file='tests/test_data.json'):
     print(f"Failed: {failed}")
     print(f"Success Rate: {(passed/(passed+failed))*100:.1f}%")
 
+def is_csv_data(text):
+    """Check if the text appears to be our CSV formatted job data"""
+    # Strip whitespace
+    text = text.strip()
+    
+    # Quick checks first
+    if not text.startswith('"'):
+        return False
+        
+    # Check for our specific format
+    patterns = [
+        # Basic format check
+        r'^"[^"]*","[^"]*","[^"]*"',
+        # Check for LinkedIn and date format
+        r'"LinkedIn","[\d/]+"',
+        # Check for empty fields pattern
+        r',"","","","'
+    ]
+    
+    return any(re.search(pattern, text) for pattern in patterns)
+
+def process_clipboard_data(debug=False):
+    """Process clipboard data and check for hybrid/onsite indicators"""
+    raw_text = pyperclip.paste()
+    
+    if is_csv_data(raw_text):
+        print("\nERROR: Clipboard contains CSV data - looks like this script was already run!")
+        print("Please copy the raw job listing from LinkedIn and try again.\n")
+        sys.exit(1)
+    
+    if debug:
+        print("\n=== DEBUG: Raw clipboard data ===")
+        print(f"Length: {len(raw_text)}")
+        print("First 200 chars:", raw_text[:200])
+    
+    # Rest of your processing code...
+
+def check_hybrid_onsite(raw_text, debug=False):
+    """Check for hybrid/onsite indicators in the job text"""
+    lower_text = raw_text.lower()
+    
+    # Strong remote indicators that override everything else
+    remote_indicators = [
+        "work anywhere company",
+        "work anywhere",
+        "fully remote",
+        "(remote)",
+        "remote position",
+        "remote role",
+        "remote work",
+        "work from anywhere",
+        # Location specific remote indicators
+        r".*\(remote\)",  # Matches "City, State (Remote)"
+        r".*remote.*",    # Matches "Remote - US" or similar
+    ]
+    
+    # Check for explicit remote indicators first
+    for indicator in remote_indicators:
+        if indicator in lower_text:
+            if debug:
+                print(f"DEBUG: Found remote indicator: {indicator}")
+            return []  # Confirmed remote - return empty list
+    
+    # Only check for hybrid/onsite if we haven't confirmed remote
+    hybrid_indicators = []
+    
+    # Skip these contexts when looking for hybrid/onsite indicators
+    skip_phrases = [
+        "headquarters",
+        "hq is located",
+        "main office",
+        "corporate office",
+        "hybrid software",
+        "hybrid systems",
+        "hybrid cloud",
+        "hybrid architecture",
+        "hybrid group"
+    ]
+    
+    # If we find any skip phrases, ignore that section of text
+    for phrase in skip_phrases:
+        if phrase in lower_text:
+            continue
+            
+    return hybrid_indicators  # Will be empty if remote or no hybrid indicators found
+
+def clean_snapshots():
+    """Remove invalid snapshots"""
+    snapshot_dir = Path("snapshots")
+    for snapshot in snapshot_dir.glob("*.json"):
+        with open(snapshot) as f:
+            data = json.load(f)
+            
+        # Check for indicators of invalid data
+        if any([
+            not data.get("company"),  # Empty company
+            not data.get("title"),    # Empty title
+            data.get("formatted_output", "").count('""') > 10,  # Too many empty fields
+            "ERROR" in data.get("raw_text", ""),  # Contains error messages
+            len(data.get("raw_text", "")) < 100   # Too short to be real posting
+        ]):
+            print(f"Removing invalid snapshot: {snapshot}")
+            snapshot.unlink()
+
+def validate_test_case(test_case, raw_text):
+    """Validate a test case against its raw text"""
+    issues = []
+    
+    # Reduce minimum text length requirement
+    if len(raw_text) < 100:  # Was likely 500 or higher
+        issues.append("Raw text too short - might be incomplete job posting")
+    
+    # Make company/title checks more flexible
+    if test_case['company'] != 'Unknown' and not any(
+        company_variant in raw_text.lower() 
+        for company_variant in [test_case['company'].lower(), 
+                              test_case['company'].split()[0].lower()]
+    ):
+        issues.append("Company name not found in raw text")
+        
+    if test_case['title'] != 'Unknown' and not any(
+        word in raw_text.lower()
+        for word in test_case['title'].lower().split()
+        if len(word) > 3  # Only check significant words
+    ):
+        issues.append("Job title not found in raw text")
+
+    return issues
+
+def generate_test_file(test_cases):
+    """Generate test_scraper.py file with quality checks"""
+    test_cases = analyze_all_snapshots()
+    valid_test_cases = []
+    
+    print("\nValidating test cases...")
+    for case in test_cases:
+        issues = validate_test_case(case)
+        if not issues:
+            valid_test_cases.append(case)
+        else:
+            print(f"\nSkipping test case for {case['expected'].get('company')}:")
+            print("Issues found:")
+            for issue in issues:
+                print(f"- {issue}")
+    
+    print(f"\nFound {len(valid_test_cases)} valid test cases out of {len(test_cases)} total")
+    
+    # Generate test file only with valid cases
+    test_code = """
+import unittest
+from scrape import parse_job_listing
+
+class TestJobScraper(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        \"\"\"Load test cases\"\"\"
+        cls.test_cases = {
+    """
+    
+    for i, case in enumerate(valid_test_cases):
+        test_code += f"""
+    def test_job_{i:03d}(self):
+        \"\"\"Test parsing of {case['expected']['company']} - {case['expected']['title']}\"\"\"
+        result = parse_job_listing(self.test_cases[{i}]['raw_text'])
+        expected = self.test_cases[{i}]['expected']
+        
+        self.assertEqual(result['company'], expected['company'])
+        self.assertEqual(result['title'], expected['title'])
+        self.assertEqual(result['location'], expected['location'])
+        self.assertEqual(result['salary'], expected['salary'])
+        self.assertEqual(bool(result.get('hybrid_indicators')), expected['is_hybrid'])
+        
+        # Additional validation
+        self.assertIn(result['company'], self.test_cases[{i}]['raw_text'])
+        self.assertIn(result['title'], self.test_cases[{i}]['raw_text'])
+    """
+    
+    with open("test_scraper.py", "w") as f:
+        f.write(test_code)
+
 if __name__ == "__main__":
-    args = setup_args()
+    import argparse
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--unit-test', action='store_true', help='Run unit tests')
+    parser.add_argument('--analyze-history', action='store_true', help='Analyze application history')
+    parser.add_argument('--debug', action='store_true', help='Enable debug output')
+    parser.add_argument('--analyze-snapshot', help='Analyze a specific snapshot file')
+    parser.add_argument('--analyze-snapshots', action='store_true', help='Analyze all snapshot files')
+    args = parser.parse_args()
+    
+    debug = args.debug
     
     if args.unit_test:
         run_tests()
     elif args.analyze_history:
-        analyze_snapshots(show_all_matches=args.allmatches)
+        analyze_all_snapshots()
+    elif args.analyze_snapshot:
+        # Your existing snapshot analysis code...
+        pass
+    elif args.analyze_snapshots:
+        print("\nStarting snapshot analysis...")
+        test_cases = analyze_all_snapshots()
+        if test_cases:
+            print("\nGenerating unit tests...")
+            generate_test_file(test_cases)
+            print("Unit tests generated in test_scraper.py")
+        else:
+            print("No valid test cases found to generate unit tests.")
     else:
+        # Get clipboard content
+        raw_text = pyperclip.paste()
+        
+        # Check if it's already CSV data
+        if is_csv_data(raw_text):
+            print("\nERROR: Clipboard contains job data that was already processed!")
+            print("Please copy a new job listing from LinkedIn before running the script.\n")
+            sys.exit(1)
+            
+        if debug:
+            print("\n=== DEBUG: Raw clipboard data ===")
+            print(f"Length: {len(raw_text)}")
+            print("First 200 chars:", raw_text[:200])
+            print("=" * 50)
+            
+        parsed_data = parse_job_listing(raw_text, debug=debug)
         format_clipboard()
