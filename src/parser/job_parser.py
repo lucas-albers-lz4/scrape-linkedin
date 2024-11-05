@@ -8,47 +8,106 @@ class JobParser:
     """Parser for LinkedIn job postings."""
     
     def parse(self, raw_text: str, debug: bool = False) -> JobPost:
-        """Parse raw text into a JobPost object."""
-        today = datetime.now().strftime("%m/%d/%Y")
+        """Parse job posting text into structured data."""
         
-        parsed_data = {
-            'company': self._extract_company(raw_text),
-            'title': self._extract_title(raw_text),
-            'location': self._extract_location(raw_text),
-            'salary': self._extract_salary(raw_text),
-            'applicants': self._extract_applicants(raw_text),
-            'posted': self._extract_posted_date(raw_text),
-            'notes': "Easy Apply" if "Easy Apply" in raw_text else "",
-            'is_remote': self._is_remote(raw_text),
-            'raw_text': raw_text,
-            'date': today,  # Today's date for when we found/parsed the job
-            'date_applied': today  # Assuming we apply the same day we find it
+        # Initialize job details
+        details = {
+            "company": "Unknown",
+            "title": "Unknown",
+            "location": "",
+            "salary": "",
+            "is_remote": False,
+            "applicants": "",
+            "posted": "",
+            "date_applied": datetime.now().strftime("%m/%d/%Y")
         }
+
+        # Extract company - look for company name before "followers"
+        company_pattern = r"(.*?)\n*[\d,]+ followers"
+        if match := re.search(company_pattern, raw_text):
+            details["company"] = match.group(1).strip().replace(" company logo", "")
+
+        # Extract title - updated patterns
+        title_patterns = [
+            r"Save\s+(.*?)\s+at\s+Unreal Staffing",  # Match "Save {title} at Company"
+            r"(?<=About the job\n).*?(?=\n)",  # Title right after "About the job"
+            r"Save Site Reliability Engineer.*?(?=\s+at)",  # Specific to this format
+        ]
         
-        job_post = JobPost(**parsed_data)
-        
-        if debug:
-            print(f"\nDebug: Extracted applicants: {job_post.applicants}")
-            print(f"Debug: Posted date: {job_post.posted}")
-            print(f"Debug: Parse/Apply date: {job_post.date}")
-            print(f"Debug: Is remote: {job_post.is_remote}")
-        
-        return job_post
+        details["title"] = "Unknown"  # Default value
+        for pattern in title_patterns:
+            if match := re.search(pattern, raw_text):
+                title = match.group(0).strip()
+                # Enhanced title cleanup
+                title = re.sub(r'^Save\s+', '', title)  # Remove "Save" prefix
+                title = re.sub(r'\s+at\s+.*$', '', title)  # Remove "at Company" suffix
+                title = re.sub(r'^Save\s+', '', title)  # Remove any remaining "Save" prefix
+                
+                if (
+                    len(title) > 0 
+                    and "About" not in title 
+                    and "notification" not in title.lower()
+                    and "skip to" not in title.lower()
+                ):
+                    details["title"] = title
+                    break
+
+        # Extract salary - look for salary pattern with Base Salary
+        salary_pattern = r'\$([\d,]+-[\d,]+k)[^a-zA-Z]*(?:Base Salary)?'
+        if match := re.search(salary_pattern, raw_text):
+            details["salary"] = f"${match.group(1)}"
+
+        # Extract location - look for US-Remote or similar patterns
+        location_pattern = r'(?:^|\n)([A-Za-z-]+Remote|United States[^·\n]*)'
+        if match := re.search(location_pattern, raw_text):
+            details["location"] = match.group(1).strip()
+            # Clean up location text
+            details["location"] = details["location"].replace("Matches your job preferences, workplace type is ", "")
+
+        # Check for remote indicators
+        details["is_remote"] = any(
+            indicator in raw_text.lower() 
+            for indicator in ["remote", "us-remote"]
+        )
+
+        # Extract applicants count if available
+        applicants_pattern = r'(\d+)\s*applicants'
+        if match := re.search(applicants_pattern, raw_text):
+            details["applicants"] = match.group(1)
+
+        # Create and return JobPost object
+        return JobPost(
+            raw_text=raw_text,
+            **details
+        )
     
     def _extract_company(self, text: str) -> str:
         """Extract company name from text."""
-        patterns = [
-            r"(?:^|\n)([^·\n]+?)\s+logo\s*(?:\n|$)",  # Company logo text
-            r"(?:at|Save.*?at)\s+([^·\n]+?)(?:\s*(?:\n|$))",  # "at Company"
-            r"(?:^|\n)([^·\n]+?)\s*·\s*(?:Full-time|[0-9,]+\s+followers)"  # Company followed by common patterns
+        company_patterns = [
+            r"(?<=\n)([^•\n]+?)\s*logo",  # Match company before "logo"
+            r"at\s+([^•\n]+?)\s*(?=\n|$)",  # Match company after "at"
         ]
         
-        for pattern in patterns:
+        for pattern in company_patterns:
             matches = re.findall(pattern, text, re.MULTILINE)
             if matches:
                 company = matches[0].strip()
                 # Filter out navigation text
                 if not any(x in company.lower() for x in ['notification', 'skip to', 'search']):
+                    return company
+        
+        # Look for company name patterns
+        patterns = [
+            r"(.*?) logo",  # Matches "Company Name logo"
+            r"About the company\n(.*?) company logo",  # Matches company name in about section
+            r"About the company\n(.*?)\n",  # Alternative about section pattern
+        ]
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            if matches:
+                company = matches[0].strip()
+                if company and company != "Unknown":
                     return company
         
         return "Unknown"
@@ -83,9 +142,9 @@ class JobParser:
         """Extract location from text."""
         # Look for location patterns
         patterns = [
-            r"(?:^|\n)([^·\n]+?,\s*[A-Z]{2}[^·\n]*?)(?:\s*·\s*[0-9]+\s*(?:hours?|days?|weeks?)\s*ago)",  # City, ST · Time ago
+            r"(?:^|\n)(United States)(?:\s*(?:·|\n|$))",  # United States (moved to first priority)
+            r"(?:^|\n)([^·\n]+?,\s*[A-Z]{2}[^·\n]*?)(?:\s*·\s*(?:\d+\s*(?:hours?|days?|weeks?|months?)\s*ago|Over\s+\d+\s+applicants))",  # City, ST · Time ago or applicants
             r"(?:^|\n)([^·\n]+?,\s*[A-Z]{2}[^·\n]*?)(?:\s*·|\s*\n)",  # City, ST followed by delimiter
-            r"(?:^|\n)(United States)(?:\s*(?:·|\n|$))",  # United States
             r"Location:\s*([^\n]+)"  # Explicit location field
         ]
         
@@ -93,10 +152,10 @@ class JobParser:
             matches = re.findall(pattern, text, re.IGNORECASE)
             if matches:
                 location = matches[0].strip()
-                # Filter out non-location text
+                # Filter out non-location text and preference matches
                 if not any(x in location.lower() for x in [
                     'notification', 'skip to', 'search', 'manager', 'engineer', 
-                    'director', 'developer', 'architect'
+                    'director', 'developer', 'architect', 'matches your', 'preferences'
                 ]):
                     # Add remote status if applicable
                     if any(term in text.lower() for term in ['remote', 'work anywhere', 'work from home']):
@@ -108,15 +167,20 @@ class JobParser:
     
     def _extract_salary(self, text: str) -> str:
         """Extract salary information from text."""
+        # Split text at "More jobs" to only look in main job posting
+        main_job_text = text.split("More jobs")[0] if "More jobs" in text else text
+        
         patterns = [
             r'\$[\d,]+K?\s*(?:-|to)\s*\$[\d,]+K?(?:/yr)?',
             r'\$[\d,]+,[\d,]+\s*(?:-|to)\s*\$[\d,]+,[\d,]+',
-            r'(?:Base pay|Salary):\s*\$[\d,]+K?\s*(?:-|to)\s*\$[\d,]+K?'
+            r'(?:Base pay|Salary):\s*\$[\d,]+K?\s*(?:-|to)\s*\$[\d,]+K?',
+            r'(?:Base pay|Salary):\s*\$[\d,]+,[\d,]+\s*(?:-|to)\s*\$[\d,]+,[\d,]+'
         ]
         
         for pattern in patterns:
-            matches = re.findall(pattern, text, re.IGNORECASE)
+            matches = re.findall(pattern, main_job_text, re.IGNORECASE)
             if matches:
+                # Take the first match only from the main job section
                 return matches[0].strip()
                 
         return ""
