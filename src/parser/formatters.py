@@ -7,11 +7,9 @@ def format_csv_row(job_post: JobPost) -> str:
 
 def format_display(job_post: JobPost) -> str:
     """Format job post details for display."""
-    return f"""
-Job Details:
-Company: {job_post.company}
-Title: {job_post.title}
-Location: {job_post.location}
-Salary: {job_post.salary}
-Remote: {'Yes' if job_post.is_remote else 'No'}
-"""
+    return f"Job Details:\n" \
+           f"Company: {job_post.company}\n" \
+           f"Title: {job_post.title}\n" \
+           f"Location: {job_post.location}\n" \
+           f"Salary: {job_post.salary}\n" \
+           f"Remote: {'Yes' if job_post.is_remote else 'No'}"

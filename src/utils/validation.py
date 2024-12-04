@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import List
 from ..models.job_post import JobPost
 import re
+from ..parser.constants import LocationPatterns
 
 def validate_job_post(job_post: JobPost) -> List[str]:
     """Comprehensive validation of job post data."""
@@ -17,25 +18,15 @@ def validate_job_post(job_post: JobPost) -> List[str]:
     # Location validation
     if not job_post.location:
         errors.append("Missing location")
-    else:
-        # US location check
-        us_states = ['AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 
-                    'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 
-                    'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 
-                    'VA', 'WA', 'WV', 'WI', 'WY']
-        
-        has_us_state = any(f", {state}" in job_post.location for state in us_states)
-        has_us_reference = any(loc in job_post.location for loc in ["United States", "US", "USA"])
-        
-        if not (has_us_state or has_us_reference):
-            errors.append("Location does not appear to be in United States")
-        
-        # Remote validation
-        if "remote" in job_post.location.lower():
-            if "hybrid" in job_post.raw_text.lower():
-                errors.append("Job claims remote but mentions hybrid work")
-            if "on-site" in job_post.raw_text.lower() or "onsite" in job_post.raw_text.lower():
-                errors.append("Job claims remote but mentions on-site work")
+    elif not LocationPatterns.is_us_location(job_post.location):
+        errors.append("Location does not appear to be in United States")
+    
+    # Remote validation
+    if "remote" in job_post.location.lower():
+        if "hybrid" in job_post.raw_text.lower():
+            errors.append("Job claims remote but mentions hybrid work")
+        if "on-site" in job_post.raw_text.lower() or "onsite" in job_post.raw_text.lower():
+            errors.append("Job claims remote but mentions on-site work")
 
     # Salary validation
     if job_post.salary:
@@ -44,19 +35,16 @@ def validate_job_post(job_post: JobPost) -> List[str]:
         if job_post.salary.count('-') != 1 and 'K' in job_post.salary:
             errors.append("Salary range format appears invalid")
     
-    # Date validation
+    # Date validation - only check date_applied since it's always today's date
     try:
-        datetime.strptime(job_post.date, "%m/%d/%Y")
         datetime.strptime(job_post.date_applied, "%m/%d/%Y")
     except ValueError:
-        errors.append("Invalid date format (should be MM/DD/YYYY)")
+        errors.append("Invalid date_applied format (should be MM/DD/YYYY)")
     
-    # Posted date validation (if it's a date and not a relative time)
-    if job_post.posted and not any(word in job_post.posted.lower() for word in ['hour', 'day', 'week', 'month']):
-        try:
-            datetime.strptime(job_post.posted, "%m/%d/%Y")
-        except ValueError:
-            errors.append("Invalid posted date format")
+    # Posted date validation - allow relative dates
+    if job_post.posted and not any(word in job_post.posted.lower() 
+                                  for word in ['hour', 'day', 'week', 'month', 'ago']):
+        errors.append("Invalid posted date format")
     
     return errors
 
