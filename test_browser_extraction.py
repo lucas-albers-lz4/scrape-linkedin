@@ -2,6 +2,33 @@ import argparse
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from src.extractors.browser import BrowserExtractor
+import datetime
+import pyperclip
+
+def format_output(job_data):
+    """Format job data for clipboard in CSV format"""
+    today = datetime.datetime.now().strftime("%m/%d/%Y")
+    
+    fields = [
+        job_data.company,
+        job_data.title,
+        job_data.location + (' (Remote)' if job_data.is_remote else ''),
+        job_data.url,  # Include URL from extraction
+        today,  # Date
+        'LinkedIn',  # Source
+        today,  # DateApplied
+        '',  # InitialResponse
+        '',  # Reject
+        '',  # Screen
+        '',  # FirstRound
+        '',  # SecondRound
+        '',  # Notes
+        job_data.salary,
+        job_data.posted,
+        job_data.applicants
+    ]
+    
+    return '"' + '","'.join(str(field) if field is not None else '' for field in fields) + '"'
 
 def test_basic_extraction(debug=False):
     print("Testing Browser Extraction")
@@ -21,6 +48,15 @@ def test_basic_extraction(debug=False):
         # Extract data with debug flag
         print("Attempting extraction...")
         job_data = extractor.extract(debug=debug)
+        
+        # Format and copy to clipboard
+        clipboard_text = format_output(job_data)
+        try:
+            pyperclip.copy(clipboard_text)
+            print("\nCopied to clipboard:")
+            print(clipboard_text)
+        except Exception as e:
+            print(f"Error copying to clipboard: {e}")
         
         # Print results
         print("\nExtracted Data:")
