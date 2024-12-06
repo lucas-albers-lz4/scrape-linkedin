@@ -14,10 +14,12 @@ from ..utils.selectors import (
 )
 import re
 from datetime import datetime, timedelta
+import json
 
 class BrowserExtractor(JobExtractor):
-    def __init__(self, driver=None):
-        self.driver = driver or self._initialize_driver()
+    def __init__(self, driver):
+        self.driver = driver
+        self.debug = False
         self.logged_in = False
 
     def _initialize_driver(self):
@@ -229,36 +231,203 @@ class BrowserExtractor(JobExtractor):
             print("\nDebug: Page source excerpt (first 1000 chars):")
             print(self.driver.page_source[:1000])  # Adjust the slice as needed for more/less output
 
-    def extract(self, debug=False) -> JobData:
+    def extract(self, debug: bool = False) -> JobData:
         """Main extraction method"""
-        self.connect()
-        self._check_login_status()
+        self.debug = debug
         
-        job_data = {
-            'company': '',
-            'title': '',
-            'location': '',
-            'salary': '',
-            'is_remote': False,
-            'posted': '',
-            'applicants': '',
-            'url': self.driver.current_url
-        }
-
-        # Get basic data from tab title first
-        current_title = self.driver.title
-        tab_title, tab_company = self._parse_tab_title(current_title)
-        if tab_company:
-            job_data['company'] = tab_company
-            print(f"Found company from tab: {tab_company}")
-        if tab_title:
-            job_data['title'] = tab_title
-            print(f"Found title from tab: {tab_title}")
-
-        # Extract remaining data using selectors
+        if debug:
+            self._dump_page_content()
+        
+        # Initialize with required fields
+        job_data = JobData(
+            company="",
+            title="",
+            location="",
+            url=self.driver.current_url
+        )
+        
+        # 1. Try tab title first
+        title, company = self._parse_tab_title(self.driver.title)
+        if company:
+            job_data.company = company
+        if title:
+            job_data.title = title
+        
+        # 2. Try salary from multiple locations
+        salary = self._extract_salary_all_locations()
+        if salary:
+            job_data.salary = salary
+        
+        # Extract remaining data using existing selectors
         self._extract_with_selectors(job_data, debug)
+        
+        return job_data
 
-        return JobData(**job_data)
+    def _dump_page_content(self):
+        """Dump page content to JSON file for debugging"""
+        try:
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f'page_structure_{timestamp}.json'
+            
+            page_data = {
+                'url': self.driver.current_url,
+                'title': self.driver.title,
+                'page_source': self.driver.page_source,
+                'salary_elements': []
+            }
+            
+            # Collect all potential salary elements
+            salary_selectors = [
+                "//div[contains(@class, 'salary-range')]",
+                "//div[contains(text(), 'Base salary')]",
+                "//span[contains(text(), 'K/yr')]",
+                ".jobs-unified-top-card__salary-details"
+            ]
+            
+            for selector in salary_selectors:
+                try:
+                    elements = self.driver.find_elements(By.XPATH if selector.startswith('//') else By.CSS_SELECTOR, selector)
+                    for element in elements:
+                        page_data['salary_elements'].append({
+                            'selector': selector,
+                            'text': element.text,
+                            'html': element.get_attribute('outerHTML')
+                        })
+                except Exception as e:
+                    print(f"Debug: Error collecting salary element {selector}: {e}")
+            
+            with open(filename, 'w', encoding='utf-8') as f:
+                json.dump(page_data, f, indent=2, ensure_ascii=False)
+            print(f"Debug: Page structure dumped to {filename}")
+            
+        except Exception as e:
+            print(f"Debug: Error dumping page content: {e}")
+
+    def _extract_salary_all_locations(self) -> str:
+        """Extract salary from all possible locations."""
+        salary_selectors = [
+            "//span[contains(text(), 'K/yr')]",
+            "//div[contains(text(), 'Base salary')]/..",
+            "//div[contains(@class, 'salary-range')]",
+            ".jobs-unified-top-card__salary-details",
+            "//div[contains(text(), '$')]",
+            "//span[contains(text(), '$')]"
+        ]
+
+        best_match = ""
+        
+        for selector in salary_selectors:
+            try:
+                elements = self.driver.find_elements(
+                    By.XPATH if selector.startswith('//') else By.CSS_SELECTOR, 
+                    selector
+                )
+                for element in elements:
+                    text = element.text.strip()
+                    if 'K/yr' in text or '$' in text:
+                        normalized = self._normalize_salary(text)
+                        if normalized:
+                            # Prefer ranges over single values
+                            if ' - ' in normalized:
+                                return normalized
+                            # Store single value but keep looking for ranges
+                            elif not best_match:
+                                best_match = normalized
+            except Exception as e:
+                if self.debug:
+                    print(f"Debug: Error with selector {selector}: {e}")
+                continue
+
+        return best_match
+
+    def _normalize_salary(self, salary_text: str) -> str:
+        """Normalize salary format to standard representation."""
+        if not salary_text:
+            return ""
+        
+        if self.debug:
+            print(f"Debug: Input salary text: {salary_text}")
+        
+        def convert_k_notation(num_str):
+            """Convert a K-notation value to a full number string."""
+            # Remove $, /yr, and any surrounding whitespace
+            num_str = num_str.replace('$', '').replace('/yr', '').strip()
+            try:
+                if 'K' in num_str.upper():
+                    # Remove 'K' and convert to float
+                    num_str = num_str.upper().replace('K', '')
+                    value = float(num_str) * 1000
+                else:
+                    # Remove commas and convert to float
+                    value = float(num_str.replace(',', ''))
+                # Format with commas
+                return f"${int(value):,}"
+            except (ValueError, TypeError):
+                if self.debug:
+                    print(f"Debug: Failed to convert number: {num_str}")
+                return ""
+        
+        # Handle invalid cases
+        if salary_text.startswith('-') or salary_text.endswith('-'):
+            if self.debug:
+                print("Debug: Invalid format - starts or ends with dash")
+            return ""
+        
+        # Define range patterns with priority
+        range_patterns = [
+            # K notation with /yr
+            r'\$?([\d.]+)K/yr\s*[-–]\s*\$?([\d.]+)K/yr',
+            # K notation without /yr
+            r'\$?([\d.]+)K\s*[-–]\s*\$?([\d.]+)K',
+            # Full numbers with /yr
+            r'\$?([\d,]+)/yr\s*[-–]\s*\$?([\d,]+)/yr',
+            # Full numbers without /yr
+            r'\$?([\d,]+)\s*[-–]\s*\$?([\d,]+)',
+            # Mixed formats
+            r'\$?([\d,.]+)K?\s*[-–]\s*\$?([\d,.]+)K?',
+        ]
+        
+        # Attempt to match range patterns
+        for pattern in range_patterns:
+            match = re.search(pattern, salary_text, re.IGNORECASE)
+            if match:
+                if self.debug:
+                    print(f"Debug: Matched range pattern: {pattern}")
+                    print(f"Debug: Found groups: {match.groups()}")
+                
+                start, end = match.groups()
+                start_formatted = convert_k_notation(start)
+                end_formatted = convert_k_notation(end)
+                
+                if start_formatted and end_formatted:
+                    result = f"{start_formatted} - {end_formatted}"
+                    if self.debug:
+                        print(f"Debug: Formatted range: {result}")
+                    return result
+        
+        # If no range found, attempt single value patterns
+        if not any(x in salary_text for x in ['-', '–', 'to']):
+            single_patterns = [
+                r'\$?([\d,.]+)K/yr',
+                r'\$?([\d,.]+)K',
+                r'\$?([\d,.]+)/yr',
+                r'\$?([\d,.]+)',
+            ]
+            
+            for pattern in single_patterns:
+                match = re.search(pattern, salary_text, re.IGNORECASE)
+                if match:
+                    if self.debug:
+                        print(f"Debug: Matched single pattern: {pattern}")
+                    value = convert_k_notation(match.group(1))
+                    if value:
+                        if self.debug:
+                            print(f"Debug: Formatted single value: {value}")
+                        return value
+        
+        if self.debug:
+            print("Debug: No patterns matched")
+        return ""
 
     def validate(self, data: JobData) -> bool:
         """Validate extracted data"""
@@ -400,3 +569,39 @@ class BrowserExtractor(JobExtractor):
                 normalized_parts.append(' '.join(normalized_words))
         
         return ', '.join(normalized_parts)
+
+    def _extract_salary(self, driver) -> str:
+        """Extract salary information using multiple strategies"""
+        for selector in LINKEDIN_SELECTORS['salary']:
+            try:
+                if selector.startswith('//'):
+                    if self.debug:
+                        print(f"Debug: Trying XPath selector: {selector}")
+                    elements = driver.find_elements(By.XPATH, selector)
+                else:
+                    if self.debug:
+                        print(f"Debug: Trying CSS selector: {selector}")
+                    elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                
+                if elements:
+                    for element in elements:
+                        text = element.text.strip()
+                        if self.debug:
+                            print(f"Debug: Found text: {text}")
+                        
+                        if '$' in text or '/yr' in text:
+                            normalized = self._normalize_salary(text)
+                            if normalized:
+                                if self.debug:
+                                    print(f"Debug: Normalized salary: {normalized}")
+                                return normalized
+                else:
+                    if self.debug:
+                        print(f"Debug: No elements found for selector: {selector}")
+                    
+            except Exception as e:
+                if self.debug:
+                    print(f"Debug: Error in salary extraction: {str(e)}")
+                continue
+        
+        return ""

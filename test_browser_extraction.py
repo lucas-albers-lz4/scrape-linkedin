@@ -30,6 +30,46 @@ def format_output(job_data):
     
     return '"' + '","'.join(str(field) if field is not None else '' for field in fields) + '"'
 
+def ensure_correct_window(driver):
+    """
+    Find and switch to the window with a LinkedIn job posting
+    
+    Args:
+        driver: Selenium WebDriver instance
+    
+    Returns:
+        bool: True if correct window found and switched, False otherwise
+    """
+    base_url = "https://www.linkedin.com/jobs"
+    
+    for handle in driver.window_handles:
+        driver.switch_to.window(handle)
+        current_url = driver.current_url
+        
+        # Check if URL starts with the LinkedIn jobs base URL and is not a collections page
+        if (current_url.startswith(base_url) and 
+            '/collections/' not in current_url and 
+            '/search/' not in current_url):
+            print(f"Found correct window: {current_url}")
+            # Refresh the page to ensure all content is loaded
+            driver.refresh()
+            # Wait for page to load after refresh
+            from selenium.webdriver.support.ui import WebDriverWait
+            from selenium.webdriver.support import expected_conditions as EC
+            from selenium.webdriver.common.by import By
+            try:
+                # Wait for job title to be present (indicating page is loaded)
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "h1.t-24"))
+                )
+                print("Page refreshed and loaded successfully")
+            except Exception as e:
+                print(f"Warning: Page refresh wait timed out: {e}")
+            return True
+    
+    print("Could not find window with job posting")
+    return False
+
 def test_basic_extraction(debug=False):
     print("Testing Browser Extraction")
     print("-" * 50)
@@ -39,9 +79,45 @@ def test_basic_extraction(debug=False):
         chrome_options = Options()
         chrome_options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
         
+        # Specify the user data directory and profile for macOS
+        user_data_dir = "/Users/lalbers/Library/Application Support/Google/Chrome"
+        chrome_options.add_argument(f"user-data-dir={user_data_dir}")
+        chrome_options.add_argument("profile-directory=Profile 1")  # Specifically use Profile 1
+        
+        # Debug Chrome connection
+        print("\nChrome Connection Details:")
+        print(f"Connecting to debugging port: 9222")
+        print(f"Using profile: Profile 1 (Lucas - lucas.b.albers@gmail.com)")
+        
         # Initialize driver
         driver = webdriver.Chrome(options=chrome_options)
         
+        # Verify we're connected to the correct profile
+        if debug:
+            try:
+                print(f"\nConnected Profile Info:")
+                print(f"Current URL: {driver.current_url}")
+                print(f"Page Title: {driver.title}")
+            except Exception as e:
+                print(f"Error getting profile info: {e}")
+        
+        # Print window information before extraction
+        print("\nWindow Information:")
+        print(f"Total windows: {len(driver.window_handles)}")
+        print(f"Current window handle: {driver.current_window_handle}")
+        print("\nAll window handles:")
+        for handle in driver.window_handles:
+            driver.switch_to.window(handle)
+            print(f"Handle: {handle}")
+            print(f"Title: {driver.title}")
+            print(f"URL: {driver.current_url}")
+            print("-" * 30)
+        
+        # Ensure correct window is selected
+        if not ensure_correct_window(driver):
+            print("Failed to find correct job window")
+            return
+            
         # Initialize extractor with driver
         extractor = BrowserExtractor(driver)
         
