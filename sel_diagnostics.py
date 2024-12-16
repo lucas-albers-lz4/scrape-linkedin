@@ -72,14 +72,23 @@ class ChromeDiagnostics:
     def test_chrome_connection(self):
         """Test basic Chrome connection"""
         try:
+            # Add page load timeout
             service = Service()
             self.driver = webdriver.Chrome(service=service, options=self.chrome_options)
+            self.driver.set_page_load_timeout(10)  # 10 second timeout
+            
+            # Test connection with timeout
+            current_url = self.driver.current_url if self.driver.current_url else "No URL available"
             print("Chrome connection: SUCCESS")
-            print(f"Current URL: {self.driver.current_url}")
+            print(f"Current URL: {current_url}")
             return True
             
+        except webdriver.TimeoutException:
+            print("Chrome connection timed out after 10 seconds")
+            return False
         except Exception as e:
             print(f"Chrome connection failed: {str(e)}")
+            print("Detailed error:", traceback.format_exc())
             return False
 
     def analyze_page_structure(self):

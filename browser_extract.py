@@ -1,6 +1,10 @@
 import argparse
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from bs4 import BeautifulSoup
 from src.extractors.browser import BrowserExtractor
 import datetime
 import pyperclip
@@ -32,40 +36,75 @@ def format_output(job_data):
 
 def ensure_correct_window(driver):
     """
-    Find and switch to the window with a LinkedIn job posting
-    
-    Args:
-        driver: Selenium WebDriver instance
-    
-    Returns:
-        bool: True if correct window found and switched, False otherwise
+    Find and switch to the window with a LinkedIn job posting, prioritizing:
+    1. Single-tab windows with LinkedIn job postings
+    2. Currently active window if it has a job posting
+    3. Any other window with a job posting
     """
     base_url = "https://www.linkedin.com/jobs"
+    current_handle = driver.current_window_handle
+    
+    def is_valid_job_url(url):
+        return (url.startswith(base_url) and 
+                '/collections/' not in url and 
+                '/search/' not in url)
+    
+    def switch_and_validate(handle):
+        driver.switch_to.window(handle)
+        driver.refresh()
+        try:
+            wait = WebDriverWait(driver, 10)
+            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "h1.t-24")))
+            print("Page refreshed and loaded successfully")
+            return True
+        except Exception as e:
+            print(f"Warning: Page refresh wait timed out: {e}")
+            return False
+
+    # Get window information
+    windows = {}
+    window_urls = {}  # Track URLs per window title to identify single-tab windows
     
     for handle in driver.window_handles:
         driver.switch_to.window(handle)
-        current_url = driver.current_url
+        url = driver.current_url
+        title = driver.title
         
-        # Check if URL starts with the LinkedIn jobs base URL and is not a collections page
-        if (current_url.startswith(base_url) and 
-            '/collections/' not in current_url and 
-            '/search/' not in current_url):
-            print(f"Found correct window: {current_url}")
-            # Refresh the page to ensure all content is loaded
-            driver.refresh()
-            # Wait for page to load after refresh
-            from selenium.webdriver.support.ui import WebDriverWait
-            from selenium.webdriver.support import expected_conditions as EC
-            from selenium.webdriver.common.by import By
-            try:
-                # Wait for job title to be present (indicating page is loaded)
-                WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "h1.t-24"))
-                )
-                print("Page refreshed and loaded successfully")
-            except Exception as e:
-                print(f"Warning: Page refresh wait timed out: {e}")
-            return True
+        windows[handle] = {
+            'url': url,
+            'title': title,
+            'is_valid': is_valid_job_url(url),
+            'is_current': handle == current_handle,
+            'window_count': len([h for h in driver.window_handles 
+                               if driver.switch_to.window(h) or True and driver.title == title])
+        }
+        
+        # Group by window title to identify single-tab windows
+        if title not in window_urls:
+            window_urls[title] = []
+        window_urls[title].append(handle)
+    
+    # Switch back to original window after counting
+    driver.switch_to.window(current_handle)
+    
+    # Priority 1: Single-tab windows with valid job posting
+    single_tab_windows = [(handle, info) for handle, info in windows.items() 
+                         if info['window_count'] == 1 and info['is_valid']]
+    if single_tab_windows:
+        handle, info = single_tab_windows[0]
+        print(f"Found single-tab window with job posting: {info['url']}")
+        return switch_and_validate(handle)
+    
+    # Priority 2: Current window if valid
+    if windows[current_handle]['is_valid']:
+        print(f"Current window has valid job posting: {windows[current_handle]['url']}")
+        return switch_and_validate(current_handle)
+    
+    # Priority 3: Any other valid window
+    for handle, info in windows.items():
+        if info['is_valid']:
+            print(f"Found alternative window with job posting: {info['url']}")
+            return switch_and_validate(handle)
     
     print("Could not find window with job posting")
     return False
