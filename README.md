@@ -47,6 +47,8 @@ python -m src.main --mode clipboard
 ```bash
 python3 browser_extract.py 
 ```
+This will dump those values as csv delimited text to your clipboard.
+
 
 ### Optional Flags
 - `--debug`: Show detailed parsing information
