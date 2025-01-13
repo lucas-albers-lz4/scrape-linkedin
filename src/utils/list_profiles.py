@@ -1,11 +1,12 @@
 import json
 import os
+from src.config import get_chrome_options
 
 def list_chrome_profiles():
     """List all available Chrome profiles and their debugging ports"""
     
-    # Path to Chrome user data directory on macOS
-    chrome_dir = "/Users/lalbers/Library/Application Support/Google/Chrome"
+    chrome_config = get_chrome_options()
+    chrome_dir = chrome_config['user_data_dir']
     local_state_path = os.path.join(chrome_dir, "Local State")
     
     try:
