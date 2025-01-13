@@ -45,7 +45,7 @@ python -m src.main --mode clipboard
 
 2. Run the parser:
 ```bash
-python -m src.main --mode browser
+python3 browser_extract.py 
 ```
 
 ### Optional Flags
