@@ -137,10 +137,11 @@ class BrowserExtractor(JobExtractor):
                 
         return None
 
-    def _extract_with_selectors(self, job_data: dict, debug: bool = False):
+    def _extract_with_selectors(self, job_data: JobData, debug: bool = False):
         """Extract data using all available selectors"""
         SELECTOR_TIMEOUT = 1
         
+        # Try to extract salary information using different selectors
         for selector in LINKEDIN_SELECTORS['salary']:
             try:
                 if selector.startswith('//'):
@@ -163,9 +164,9 @@ class BrowserExtractor(JobExtractor):
                             for pattern in LINKEDIN_SELECTORS['salary_patterns']:
                                 salary_match = re.search(pattern, text)
                                 if salary_match:
-                                    job_data['salary'] = salary_match.group(0)
+                                    job_data.salary = salary_match.group(0)
                                     if debug:
-                                        print(f"Debug: Found salary: {job_data['salary']}")
+                                        print(f"Debug: Found salary: {job_data.salary}")
                                     return
                         except Exception as e:
                             if debug:
@@ -180,14 +181,14 @@ class BrowserExtractor(JobExtractor):
                     print(f"Debug: Error with selector '{selector}': {str(e)}")
                 continue
 
-        if debug and not job_data.get('salary'):
+        if debug and not job_data.salary:
             print("\nDebug: No salary found with any selector")
 
         # Extract posted date
         if debug:
             print("\nDebug: Starting posted date extraction with full page analysis...")
             print("\nDebug: Current page source excerpt:")
-            print(self.driver.page_source[:1000])  # Move page dump to start of extraction
+            print(self.driver.page_source[:1000])
             
         for selector in LINKEDIN_SELECTORS['posted_date']:
             try:
@@ -212,9 +213,9 @@ class BrowserExtractor(JobExtractor):
                                 print(f"Debug: Found 'ago' in text: '{text}'")
                             posted_date = self._parse_relative_date(text, debug)
                             if posted_date:
-                                job_data['posted'] = posted_date.strftime('%Y-%m-%d')
+                                job_data.posted = posted_date.strftime('%Y-%m-%d')
                                 if debug:
-                                    print(f"Debug: Successfully parsed posted date: {job_data['posted']}")
+                                    print(f"Debug: Successfully parsed posted date: {job_data.posted}")
                                 return
                 else:
                     if debug:
@@ -225,7 +226,7 @@ class BrowserExtractor(JobExtractor):
                     print(f"Debug: Error with selector '{selector}': {str(e)}")
                 continue
 
-        if debug and not job_data.get('posted'):
+        if debug and not job_data.posted:
             print("\nDebug: No posted date found with any selector")
             
             # Additional debugging - dump page source
