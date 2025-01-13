@@ -1,3 +1,4 @@
+from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.support.ui import WebDriverWait
@@ -266,7 +267,7 @@ class BrowserExtractor(JobExtractor):
     def _dump_page_content(self):
         """Dump page content to JSON file for debugging"""
         try:
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f'page_structure_{timestamp}.json'
             
             page_data = {
@@ -300,8 +301,10 @@ class BrowserExtractor(JobExtractor):
                 json.dump(page_data, f, indent=2, ensure_ascii=False)
             print(f"Debug: Page structure dumped to {filename}")
             
+            return filename
         except Exception as e:
-            print(f"Debug: Error dumping page content: {e}")
+            print(f"Debug: Error dumping page content: {str(e)}")
+            return None
 
     def _extract_salary_all_locations(self) -> str:
         """Extract salary from all possible locations."""

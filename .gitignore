@@ -26,6 +26,8 @@ env/
 ENV/
 .env
 .venv
+.env.*
+!.env.example
 
 # IDE
 .idea/
@@ -52,6 +54,9 @@ logs/
 *.log
 *.db
 *.sqlite3
+chrome_debug.log
+test_output/
+page_structure_*.json
 
 # OS specific
 .DS_Store
@@ -59,4 +64,7 @@ Thumbs.db
 *.bak
 *.tmp
 *.temp
-page_structure_*_*.json
+
+# Local configuration
+local_settings.py
+instance/

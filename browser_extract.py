@@ -6,12 +6,15 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 from src.extractors.browser import BrowserExtractor
-import datetime
+import json
 import pyperclip
+import os
+from src.config import get_chrome_options
+from datetime import datetime
 
 def format_output(job_data):
     """Format job data for clipboard in CSV format"""
-    today = datetime.datetime.now().strftime("%m/%d/%Y")
+    today = datetime.now().strftime("%m/%d/%Y")
     
     fields = [
         job_data.company,
@@ -116,17 +119,18 @@ def test_basic_extraction(debug=False):
     try:
         # Initialize Chrome options for debugging
         chrome_options = Options()
-        chrome_options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
+        chrome_config = get_chrome_options()
+        chrome_options.add_experimental_option("debuggerAddress", f"127.0.0.1:{chrome_config['debug_port']}")
         
-        # Specify the user data directory and profile for macOS
-        user_data_dir = "/Users/lalbers/Library/Application Support/Google/Chrome"
-        chrome_options.add_argument(f"user-data-dir={user_data_dir}")
-        chrome_options.add_argument("profile-directory=Profile 1")  # Specifically use Profile 1
+        # Use configured Chrome profile
+        chrome_options.add_argument(f"user-data-dir={chrome_config['user_data_dir']}")
+        chrome_options.add_argument(f"profile-directory={chrome_config['profile']}")
         
         # Debug Chrome connection
-        print("\nChrome Connection Details:")
-        print(f"Connecting to debugging port: 9222")
-        print(f"Using profile: Profile 1 (Lucas - lucas.b.albers@gmail.com)")
+        if debug:
+            print("\nChrome Connection Details:")
+            print(f"Connecting to debugging port: {chrome_config['debug_port']}")
+            print(f"Using profile: {chrome_config['profile']}")
         
         # Initialize driver
         driver = webdriver.Chrome(options=chrome_options)
