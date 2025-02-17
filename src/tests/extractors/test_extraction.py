@@ -5,6 +5,8 @@ from src.extractors.browser import BrowserExtractor
 from src.models.job import JobData
 import pytest
 from unittest.mock import patch
+from src.constants.selectors import JOB_TITLE_SELECTORS
+from src.utils.extraction_utils import extract_text_with_selectors
 
 class TestExtraction:
     @pytest.fixture
@@ -29,3 +31,9 @@ class TestExtraction:
             posted="2 days ago",
             url="https://linkedin.com/jobs/test"
         )
+
+    def test_extract_title(self, mock_driver):
+        # Setup your test page content if needed
+        title = extract_text_with_selectors(mock_driver, JOB_TITLE_SELECTORS, debug=True)
+        # Assert that title extraction meets expectations
+        assert title != "", "Title should not be empty."

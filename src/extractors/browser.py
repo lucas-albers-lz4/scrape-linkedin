@@ -137,102 +137,6 @@ class BrowserExtractor(JobExtractor):
                 
         return None
 
-    def _extract_with_selectors(self, job_data: JobData, debug: bool = False):
-        """Extract data using all available selectors"""
-        SELECTOR_TIMEOUT = 1
-        
-        # Try to extract salary information using different selectors
-        for selector in LINKEDIN_SELECTORS['salary']:
-            try:
-                if selector.startswith('//'):
-                    if debug:
-                        print(f"Debug: Trying XPath selector: {selector}")
-                    elements = self.driver.find_elements(By.XPATH, selector)
-                else:
-                    if debug:
-                        print(f"Debug: Trying CSS selector: {selector}")
-                    elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                
-                if elements:
-                    for element in elements:
-                        text = element.text
-                        if debug:
-                            print(f"Debug: Found text: {text}")
-                        
-                        # Try all salary patterns
-                        try:
-                            for pattern in LINKEDIN_SELECTORS['salary_patterns']:
-                                salary_match = re.search(pattern, text)
-                                if salary_match:
-                                    job_data.salary = salary_match.group(0)
-                                    if debug:
-                                        print(f"Debug: Found salary: {job_data.salary}")
-                                    return
-                        except Exception as e:
-                            if debug:
-                                print(f"Debug: Error matching salary pattern: {str(e)}")
-                            continue
-                else:
-                    if debug:
-                        print(f"Debug: No elements found for selector: {selector}")
-                    
-            except Exception as e:
-                if debug:
-                    print(f"Debug: Error with selector '{selector}': {str(e)}")
-                continue
-
-        if debug and not job_data.salary:
-            print("\nDebug: No salary found with any selector")
-
-        # Extract posted date
-        if debug:
-            print("\nDebug: Starting posted date extraction with full page analysis...")
-            print("\nDebug: Current page source excerpt:")
-            print(self.driver.page_source[:1000])
-            
-        for selector in LINKEDIN_SELECTORS['posted_date']:
-            try:
-                if selector.startswith('//'):
-                    if debug:
-                        print(f"\nDebug: Trying posted date XPath selector: {selector}")
-                    elements = self.driver.find_elements(By.XPATH, selector)
-                else:
-                    if debug:
-                        print(f"\nDebug: Trying posted date CSS selector: {selector}")
-                    elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                
-                if elements:
-                    for element in elements:
-                        text = element.text
-                        if debug:
-                            print(f"Debug: Found element text: '{text}'")
-                            print(f"Debug: Element class: {element.get_attribute('class')}")
-                        
-                        if 'ago' in text.lower():
-                            if debug:
-                                print(f"Debug: Found 'ago' in text: '{text}'")
-                            posted_date = self._parse_relative_date(text, debug)
-                            if posted_date:
-                                job_data.posted = posted_date.strftime('%Y-%m-%d')
-                                if debug:
-                                    print(f"Debug: Successfully parsed posted date: {job_data.posted}")
-                                return
-                else:
-                    if debug:
-                        print(f"Debug: No elements found for selector: {selector}")
-                    
-            except Exception as e:
-                if debug:
-                    print(f"Debug: Error with selector '{selector}': {str(e)}")
-                continue
-
-        if debug and not job_data.posted:
-            print("\nDebug: No posted date found with any selector")
-            
-            # Additional debugging - dump page source
-            print("\nDebug: Page source excerpt (first 1000 chars):")
-            print(self.driver.page_source[:1000])  # Adjust the slice as needed for more/less output
-
     def extract(self, debug: bool = False) -> JobData:
         """Main extraction method"""
         self.debug = debug
@@ -261,7 +165,7 @@ class BrowserExtractor(JobExtractor):
             job_data.salary = salary
         
         # Extract remaining data using existing selectors
-        self._extract_with_selectors(job_data, debug)
+        # self._extract_with_selectors(job_data, debug)
         
         return job_data
 
