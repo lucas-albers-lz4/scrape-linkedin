@@ -4,7 +4,7 @@ python-dateutil
 jinja2
 
 # Address parsing
-usaddress>=0.5.10
-selenium
+usaddress==0.5.12
+selenium==4.29.0
 datetime
 BeautifulSoup4
