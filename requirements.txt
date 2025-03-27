@@ -2,9 +2,11 @@ pyperclip>=1.8.2
 pytest>=7.4.3
 python-dateutil
 jinja2
-
+setuptools==78.1.0
 # Address parsing
 usaddress==0.5.12
 selenium==4.29.0
 datetime
 BeautifulSoup4
+pytz==2025.2
+typing-extensions==4.13.0
