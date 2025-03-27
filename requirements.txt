@@ -8,3 +8,5 @@ usaddress==0.5.12
 selenium==4.29.0
 datetime
 BeautifulSoup4
+setuptools>=70.0.0 # not directly required, pinned by Snyk to avoid a vulnerability
+zipp>=3.19.1 # not directly required, pinned by Snyk to avoid a vulnerability
