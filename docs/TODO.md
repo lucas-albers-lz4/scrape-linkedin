@@ -3,6 +3,4 @@
 ## Project Goal
 ## Questions for Consideration
 
-1. Is there any functionality in the clipboard mode that might be useful to preserve or incorporate into the browser mode?
-2. Are there any specific error conditions or edge cases that should be handled more gracefully?
-3. Would additional command line options be helpful for your workflow?
+1. Analyze page_structure*.json files it drops as part of each extract to bisect on parsing errors, as LinkedIn occasionally changes its format, so it's helpful to compare to historic json parse results to find what changed.
