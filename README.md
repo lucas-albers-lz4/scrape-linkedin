@@ -37,45 +37,37 @@ A tool for parsing LinkedIn job postings and formatting them for tracking applic
 
 ## Usage
 
-This tool can operate in two modes:
+This tool extracts job posting data directly from an active LinkedIn tab using Chrome's debug mode.
 
-### Clipboard Mode
+### Quick Start
 
-Parses job posting text copied directly from LinkedIn.
+Use the convenience script that handles Chrome debug mode automatically:
 
-1.  Navigate to a LinkedIn job posting in your browser.
-2.  Select all text (Ctrl+A or Cmd+A).
-3.  Copy the selected text (Ctrl+C or Cmd+C).
-4.  Run the parser:
-    ```bash
-    python -m src.main --mode clipboard
-    ```
-    The parsed data will be formatted and copied back to your clipboard, ready to paste into a spreadsheet or tracking system. Snapshots of the raw and parsed data are saved by default.
+```bash
+./run.sh
+```
 
-### Browser Mode
-
-Directly extracts job posting data from an active LinkedIn tab using Chrome's debug mode.
+### Manual Steps
 
 1.  **Start Chrome in debug mode:**
-    Ensure Chrome is fully closed, then run the appropriate script for your OS (you might need to adjust the Chrome path):
-    *   **macOS:** `./chrome-debug.sh`
-    *   **Linux:** `./chrome-debug.sh` (adjust path if necessary)
-    *   **Windows:** `chrome-debug.bat` (adjust path if necessary)
+    Ensure Chrome is fully closed, then run:
+    ```bash
+    ./chrome.debug.sh
+    ```
     This opens a new Chrome instance connected to the debug port.
 
 2.  **Navigate to a job posting:** In the debug-mode Chrome window, go to the LinkedIn job posting you want to parse.
 
 3.  **Run the parser:**
     ```bash
-    python3 browser_extract.py 
+    python3 linkedin_job_parser.py 
     ```
-    The tool will connect to the debug-mode Chrome instance, extract the data from the active tab, parse it, and copy the formatted results to your clipboard. Snapshots are also saved by default. Then paste into your google sheet or whatever, and whala you have all the data from your most recent application.
+    The tool will extract the data from the active tab, parse it, and copy the formatted results to your clipboard. Then paste into your spreadsheet.
 
 ### Optional Flags
 
 -   `--debug`: Enable detailed logging output for parsing steps.
--   `--no-snapshot`: Prevent the creation of snapshot files in the snapshots directory.
--   `--diagnose` (Browser Mode): Run diagnostics to check the connection to the Chrome debug instance.
+-   `--diagnose`: Run diagnostics to check the connection to the Chrome debug instance.
 
 ## Features
 
@@ -106,7 +98,20 @@ Directly extracts job posting data from an active LinkedIn tab using Chrome's de
 -   Validates extracted data (e.g., US location format).
 -   Formats output data (tab-separated) for easy pasting into spreadsheets.
 -   Creates timestamped JSON snapshots of raw and parsed data for testing and reprocessing (`/snapshots` directory).
--   Includes logic to prevent accidental reprocessing of identical clipboard content within a short timeframe.
+
+## Troubleshooting
+
+If you encounter issues:
+
+1. **Chrome Debug Connection:**
+   - Make sure Chrome is running with the debug port enabled (`./chrome.debug.sh`)
+   - Check that no other Chrome instance is using port 9222
+   - Run `./linkedin_job_parser.py --diagnose` to check connection status
+
+2. **Extraction Problems:**
+   - Ensure you're on a valid LinkedIn job posting page
+   - Try the `--debug` flag for additional information
+   - Some job postings may have non-standard formats that are difficult to parse
 
 ## Configuration
 
