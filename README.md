@@ -6,152 +6,168 @@ A tool for parsing LinkedIn job postings and formatting them for tracking applic
 
 - Python 3.8+
 - Google Chrome
-- ChromeDriver matching your Chrome version
+- ChromeDriver matching your Chrome version installed and accessible in your PATH.
 - LinkedIn account (for browser-based extraction)
 
 ## Setup
 
-1. Create a virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
+1.  **Clone the repository:**
+    ```bash
+    git clone <repository-url>
+    cd scrape-linkedin
+    ```
 
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+2.  **Create and activate a virtual environment:**
+    ```bash
+    python3 -m venv venv
+    source venv/bin/activate  # On Windows use `venv\Scripts\activate`
+    ```
 
-3. Copy environment template and configure:
-```bash
-cp .env.example .env
-# Edit .env with your settings
-```
+3.  **Install dependencies:**
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+4.  **Configure environment variables:**
+    Copy the example file:
+    ```bash
+    cp .env.example .env
+    ```
+    Then, edit the `.env` file with your specific settings (like Chrome user data directory if not default). See the [Configuration](#configuration) section for details.
 
 ## Usage
 
+This tool can operate in two modes:
+
 ### Clipboard Mode
-1. Copy a LinkedIn job posting (Ctrl+A, Ctrl+C)
-2. Run the parser:
-```bash
-python -m src.main --mode clipboard
-```
+
+Parses job posting text copied directly from LinkedIn.
+
+1.  Navigate to a LinkedIn job posting in your browser.
+2.  Select all text (Ctrl+A or Cmd+A).
+3.  Copy the selected text (Ctrl+C or Cmd+C).
+4.  Run the parser:
+    ```bash
+    python -m src.main --mode clipboard
+    ```
+    The parsed data will be formatted and copied back to your clipboard, ready to paste into a spreadsheet or tracking system. Snapshots of the raw and parsed data are saved by default.
 
 ### Browser Mode
-1. Start Chrome in debug mode:
-```bash
-./chrome.debug.sh
-```
 
-2. Run the parser:
-```bash
-python3 browser_extract.py 
-```
-This will dump those values as csv delimited text to your clipboard.
+Directly extracts job posting data from an active LinkedIn tab using Chrome's debug mode.
 
+1.  **Start Chrome in debug mode:**
+    Ensure Chrome is fully closed, then run the appropriate script for your OS (you might need to adjust the Chrome path):
+    *   **macOS:** `./chrome-debug.sh`
+    *   **Linux:** `./chrome-debug.sh` (adjust path if necessary)
+    *   **Windows:** `chrome-debug.bat` (adjust path if necessary)
+    This opens a new Chrome instance connected to the debug port.
+
+2.  **Navigate to a job posting:** In the debug-mode Chrome window, go to the LinkedIn job posting you want to parse.
+
+3.  **Run the parser:**
+    ```bash
+    python -m src.main --mode browser
+    ```
+    The tool will connect to the debug-mode Chrome instance, extract the data from the active tab, parse it, and copy the formatted results to your clipboard. Snapshots are also saved by default.
 
 ### Optional Flags
-- `--debug`: Show detailed parsing information
-- `--no-snapshot`: Skip creating snapshot files
-- `--diagnose`: Run Chrome connection diagnostics
+
+-   `--debug`: Enable detailed logging output for parsing steps.
+-   `--no-snapshot`: Prevent the creation of snapshot files in the snapshots directory.
+-   `--diagnose` (Browser Mode): Run diagnostics to check the connection to the Chrome debug instance.
 
 ## Features
 
-- Extracts key information:
-  - Company name
-  - Job title
-  - Location (with remote status)
-  - Salary range
-  - Application dates
-  - Posting details (applicants, post date)
-- Validates US locations and remote work status
-- Formats data for spreadsheet tracking
-- Prevents accidental reprocessing
-- Creates snapshots for testing
-- Tracks manual additions (URL, notes, application status)
-
-## Data Format
-
-Automatically Populated:
-- Company (parsed from posting)
-- Title (parsed from posting)
-- Location (parsed with remote status)
-- Date (current date)
-- Source (always "LinkedIn")
-- DateApplied (current date)
-- Salary (when available in posting)
-
-Conditionally Populated (if available):
-- Applicants (e.g., "100+", "31")
-- Posted (e.g., "2 weeks ago")
-
-Manual Entry Required:
-- URL (not available from clipboard)
-- InitialResponse
-- Reject
-- Screen
-- FirstRound
-- SecondRound
-- Notes
+-   Extracts key job details:
+    -   Company Name
+    -   Job Title
+    -   Location (identifies remote status, primarily for US locations)
+    -   Salary Range (when available in standard formats)
+    -   Job Posting Date (e.g., "2 weeks ago")
+    -   Applicant Count (e.g., "31 applicants")
+-   Automatically populates fields commonly used for application tracking:
+    -   `Company`
+    -   `Title`
+    -   `Location`
+    -   `Date` (current date of parsing)
+    -   `Source` (defaults to "LinkedIn")
+    -   `DateApplied` (current date of parsing)
+    -   `Salary` (if found)
+    -   `Applicants` (if found)
+    -   `Posted` (if found)
+-   Leaves placeholders for manual entry fields:
+    -   `URL` (cannot be reliably extracted from clipboard/browser DOM in all cases)
+    -   `InitialResponse`
+    -   `Reject`
+    -   `Screen`
+    -   `FirstRound`, `SecondRound`, etc.
+    -   `Notes`
+-   Validates extracted data (e.g., US location format).
+-   Formats output data (tab-separated) for easy pasting into spreadsheets.
+-   Creates timestamped JSON snapshots of raw and parsed data for testing and reprocessing (`/snapshots` directory).
+-   Includes logic to prevent accidental reprocessing of identical clipboard content within a short timeframe.
 
 ## Configuration
 
-The application can be configured through environment variables or `.env` file:
+Configure the application via a `.env` file in the project root or environment variables:
 
-- `CHROME_PROFILE`: Chrome profile to use (default: "Profile 1")
-- `CHROME_DEBUG_PORT`: Debug port for Chrome (default: "9222")
-- `CHROME_USER_DATA_DIR`: Chrome user data directory
-- `SNAPSHOTS_DIR`: Directory for saving job snapshots
-- `DEBUG_MODE`: Enable debug logging
+-   `CHROME_USER_DATA_DIR`: Path to your Chrome user data directory. Required for Browser Mode to connect to the correct instance.
+    *   *Example macOS*: `/Users/your_user/Library/Application Support/Google/Chrome`
+    *   *Example Windows*: `C:\Users\your_user\AppData\Local\Google\Chrome\User Data`
+-   `CHROME_PROFILE`: Chrome profile directory name (default: "Default", common alternatives: "Profile 1", "Profile 2"). Check your `CHROME_USER_DATA_DIR` to see profile directory names.
+-   `CHROME_DEBUG_PORT`: Port for Chrome debugging connection (default: "9222"). Ensure this matches the port in the `chrome-debug` script.
+-   `SNAPSHOTS_DIR`: Directory to save job data snapshots (default: "snapshots").
+-   `DEBUG_MODE`: Set to `True` to enable debug logging (equivalent to `--debug` flag).
 
 ## Development
 
 ### Running Tests
-```bash
-# Run all tests
-pytest
 
-# Test specific modules
-python3 -m src.tests.test_clipboard
-python3 -m src.tests.test_validation
+Ensure you have the development dependencies installed (`pip install -r requirements-dev.txt` if applicable, or ensure `pytest` is installed).
+
+```bash
+pytest
 ```
+This command will discover and run all tests in the `src/tests` directory.
 
 ### Code Style
+
+We use `black` for formatting and `flake8` for linting.
+
 ```bash
-flake8 src tests
-black src tests
+black src src/tests
+flake8 src src/tests
 ```
+
+### Development Documentation
+
+For details on the data structure, development process, and maintenance, see the [Development Guide](./docs/DEVELOPMENT_GUIDE.md).
 
 ## Known Limitations
 
-1. **Automated Field Parsing**
-   - Company name and title parsing requires specific LinkedIn format
-   - Location parsing is US-centric
-   - Salary parsing limited to standard US formats
-   - Remote status detection needs improvement
-   - Applicants count may miss some formats
-   - Posted date parsing varies by format
+This tool relies on the structure of LinkedIn job postings, which can change. Current known limitations include:
 
-2. **Manual Entry Fields**
-   - URL (not available in clipboard data)
-   - Application status tracking (InitialResponse, Screen, etc.)
-   - Notes and custom annotations
-   - Interview rounds (First, Second)
-   - Rejection tracking
+-   Parsing accuracy depends on the specific format and consistency of LinkedIn's HTML/text structure. Changes by LinkedIn may break parsing for certain fields.
+-   Location parsing and remote status detection are primarily designed for US-based postings.
+-   Salary parsing may not capture all possible formats.
 
-3. **Data Validation**
-   - URL field is not automatically populated
-   - Limited to standard US salary formats
+For a detailed list of current limitations and potential areas for improvement, please see [Known Limitations](./docs/KNOWN_LIMITATIONS.md).
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests
-5. Submit a pull request
+Contributions are welcome! Please follow these steps:
+
+1.  Fork the repository.
+2.  Create a new branch for your feature or bug fix (`git checkout -b feature/your-feature-name`).
+3.  Make your changes and add tests as appropriate.
+4.  Ensure all tests pass (`pytest`).
+5.  Format and lint your code (`black src src/tests`, `flake8 src src/tests`).
+6.  Commit your changes (`git commit -m 'Add some feature'`).
+7.  Push to your branch (`git push origin feature/your-feature-name`).
+8.  Create a Pull Request.
 
 ## License
 
-MIT License - See LICENSE file for details
+This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
 
