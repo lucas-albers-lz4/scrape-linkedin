@@ -67,9 +67,9 @@ Directly extracts job posting data from an active LinkedIn tab using Chrome's de
 
 3.  **Run the parser:**
     ```bash
-    python -m src.main --mode browser
+    python3 browser_extract.py 
     ```
-    The tool will connect to the debug-mode Chrome instance, extract the data from the active tab, parse it, and copy the formatted results to your clipboard. Snapshots are also saved by default.
+    The tool will connect to the debug-mode Chrome instance, extract the data from the active tab, parse it, and copy the formatted results to your clipboard. Snapshots are also saved by default. Then paste into your google sheet or whatever, and whala you have all the data from your most recent application.
 
 ### Optional Flags
 
